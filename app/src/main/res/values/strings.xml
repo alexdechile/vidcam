@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">VidCam</string>
+    <string name="channel_export_name">Exportación</string>
+    <string name="channel_export_desc">Progreso de exportación de vídeo</string>
+</resources>
