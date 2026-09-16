@@ -8,6 +8,9 @@ import androidx.core.content.ContextCompat
 
 object Permissions {
 
+    private const val PREFS = "vidcam_permissions"
+    private const val KEY_REQUESTED = "requested"
+
     /** Permisos esenciales solicitados en un único flujo al primer arranque. */
     val essential: List<String> = buildList {
         add(Manifest.permission.CAMERA)
@@ -31,4 +34,14 @@ object Permissions {
 
     fun microphoneGranted(context: Context): Boolean =
         granted(context, Manifest.permission.RECORD_AUDIO)
+
+    fun wasRequested(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_REQUESTED, false)
+
+    fun markRequested(context: Context) {
+        prefs(context).edit().putBoolean(KEY_REQUESTED, true).apply()
+    }
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }

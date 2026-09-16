@@ -216,6 +216,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    fun cancelExport() {
+        exporter.cancel()
+        _exporting.value = false
+        _message.value = "Exportación cancelada"
+    }
+
     fun shareLastExport() {
         _lastExport.value?.let { ShareUtils.shareVideo(context, it) }
     }

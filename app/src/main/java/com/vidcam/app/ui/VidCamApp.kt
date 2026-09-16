@@ -1,5 +1,8 @@
 package com.vidcam.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -26,7 +29,8 @@ fun VidCamApp() {
     }
 
     LaunchedEffect(Unit) {
-        if (!granted) {
+        if (!granted && !Permissions.wasRequested(context)) {
+            Permissions.markRequested(context)
             launcher.launch(Permissions.essential.toTypedArray())
         }
     }
@@ -37,6 +41,13 @@ fun VidCamApp() {
     } else {
         PermissionScreen(
             onRequest = { launcher.launch(Permissions.essential.toTypedArray()) },
+            onOpenSettings = {
+                val intent = Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                )
+                context.startActivity(intent)
+            },
         )
     }
 }

@@ -253,6 +253,9 @@ fun EditorScreen(viewModel: EditorViewModel) {
                 }
             },
             confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelExport) { Text("Cancelar") }
+            },
         )
     }
 }

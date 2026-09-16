@@ -9,6 +9,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,7 +17,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun PermissionScreen(onRequest: () -> Unit) {
+fun PermissionScreen(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -46,6 +47,12 @@ fun PermissionScreen(onRequest: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(text = "Conceder permisos")
+            }
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text(text = "Abrir ajustes de la app")
             }
         }
     }
