@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlaySettings
 import com.vidcam.app.model.LayerKind
@@ -17,6 +18,7 @@ import com.vidcam.app.model.OverlayLayer
  * Overlay de Media3 que dibuja un [Bitmap] y respeta el canal alfa.
  * La visibilidad se controla con la ventana temporal de la capa.
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 class LayerBitmapOverlay(
     private val bitmap: Bitmap,
     private val layer: OverlayLayer,
@@ -37,6 +39,7 @@ class LayerBitmapOverlay(
     }
 }
 
+@androidx.annotation.OptIn(UnstableApi::class)
 object LayerBitmaps {
 
     fun decodePng(context: Context, uriString: String): Bitmap? = try {

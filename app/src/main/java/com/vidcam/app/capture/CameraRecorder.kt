@@ -1,6 +1,9 @@
 package com.vidcam.app.capture
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
@@ -15,7 +18,9 @@ import java.io.File
  * Controlador de cámara basado en CameraX que graba vídeo vertical con audio
  * y permite alternar la cámara frontal/trasera.
  */
-class CameraRecorder(context: Context) {
+class CameraRecorder(rawContext: Context) {
+
+    private val context: Context = rawContext.applicationContext
 
     val controller: LifecycleCameraController = LifecycleCameraController(context).apply {
         setEnabledUseCases(CameraController.VIDEO_CAPTURE)
@@ -37,8 +42,19 @@ class CameraRecorder(context: Context) {
             }
     }
 
+    @SuppressLint("MissingPermission")
     fun start(output: File, onFinalized: (File) -> Unit) {
         if (recording != null) return
+        val hasCamera = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasMicrophone = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasCamera || !hasMicrophone) return
+
         val options = FileOutputOptions.Builder(output).build()
         recording = controller.startRecording(
             options,

@@ -412,6 +412,7 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun TimelinePreview(clip: VideoClip, layers: List<OverlayLayer>, modifier: Modifier) {
     val context = LocalContext.current

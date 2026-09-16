@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
@@ -25,6 +26,7 @@ import java.io.File
  * tiempo (varios clips), la música opcional y las capas superpuestas en un
  * único MP4 H.264/AAC.
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 class VideoExporter(private val context: Context) {
 
     interface Callback {
