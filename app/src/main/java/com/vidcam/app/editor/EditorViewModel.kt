@@ -1,0 +1,227 @@
+package com.vidcam.app.editor
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.vidcam.app.export.GallerySaver
+import com.vidcam.app.export.ShareUtils
+import com.vidcam.app.export.VideoExporter
+import com.vidcam.app.media.MediaProbe
+import com.vidcam.app.media.MusicRepository
+import com.vidcam.app.model.LayerKind
+import com.vidcam.app.model.MAX_DURATION_MS
+import com.vidcam.app.model.MusicTrack
+import com.vidcam.app.model.OverlayLayer
+import com.vidcam.app.model.Project
+import com.vidcam.app.model.TimelineMath
+import com.vidcam.app.model.VideoClip
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+class EditorViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _project = MutableStateFlow(Project())
+    val project: StateFlow<Project> = _project.asStateFlow()
+
+    private val _exporting = MutableStateFlow(false)
+    val exporting: StateFlow<Boolean> = _exporting.asStateFlow()
+
+    private val _progress = MutableStateFlow(0)
+    val progress: StateFlow<Int> = _progress.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _lastExport = MutableStateFlow<File?>(null)
+    val lastExport: StateFlow<File?> = _lastExport.asStateFlow()
+
+    private val musicRepository = MusicRepository(application)
+    private val exporter = VideoExporter(application)
+
+    private val context: Application
+        get() = getApplication()
+
+    fun consumeMessage() {
+        _message.value = null
+    }
+
+    private fun update(block: (Project) -> Project) {
+        _project.value = block(_project.value)
+    }
+
+    // --- Clips -------------------------------------------------------------
+
+    fun addRecordedClip(file: File) {
+        val uri = Uri.fromFile(file)
+        val duration = MediaProbe.durationMs(context, uri)
+        if (duration <= 0L) {
+            _message.value = "No se pudo leer la grabación"
+            return
+        }
+        addClip(uri.toString(), duration)
+    }
+
+    fun importVideo(uri: Uri) {
+        viewModelScope.launch {
+            val cached = withContext(Dispatchers.IO) {
+                MediaProbe.copyToCache(context, uri, "clip")
+            }
+            if (cached == null) {
+                _message.value = "No se pudo importar el vídeo"
+                return@launch
+            }
+            val duration = withContext(Dispatchers.IO) {
+                MediaProbe.durationMs(context, Uri.fromFile(cached))
+            }
+            if (duration <= 0L) {
+                _message.value = "No se pudo leer el vídeo importado"
+                return@launch
+            }
+            addClip(Uri.fromFile(cached).toString(), duration)
+        }
+    }
+
+    private fun addClip(uri: String, sourceDurationMs: Long) {
+        val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
+        if (remaining <= 0L) {
+            _message.value = "Límite de 30 s alcanzado"
+            return
+        }
+        val clip = VideoClip(
+            id = "clip-${System.currentTimeMillis()}",
+            uri = uri,
+            sourceDurationMs = sourceDurationMs,
+        )
+        val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
+        update { it.copy(clips = it.clips + trimmed) }
+    }
+
+    fun removeClip(id: String) =
+        update { project -> project.copy(clips = project.clips.filterNot { it.id == id }) }
+
+    fun updateTrim(id: String, startMs: Long, endMs: Long) = update { project ->
+        val others = project.clips.filterNot { it.id == id }.sumOf { it.trimmedDurationMs }
+        val maxForClip = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        project.copy(
+            clips = project.clips.map { clip ->
+                if (clip.id != id) {
+                    clip
+                } else {
+                    val boundedEnd = endMs.coerceAtMost(startMs + maxForClip)
+                    TimelineMath.clampTrim(clip, startMs, boundedEnd)
+                }
+            },
+        )
+    }
+
+    // --- Música ------------------------------------------------------------
+
+    fun loadMusic(onLoaded: (List<MusicTrack>) -> Unit) {
+        viewModelScope.launch {
+            val tracks = withContext(Dispatchers.IO) { musicRepository.loadTracks() }
+            onLoaded(tracks)
+        }
+    }
+
+    fun setMusic(track: MusicTrack) =
+        update { it.copy(music = track, musicEnabled = true, musicStartMs = 0L) }
+
+    fun clearMusic() =
+        update { it.copy(music = null, musicEnabled = false, musicStartMs = 0L) }
+
+    fun setMusicEnabled(enabled: Boolean) =
+        update { it.copy(musicEnabled = enabled && it.music != null) }
+
+    fun setMusicStart(ms: Long) = update { project ->
+        val max = (project.music?.durationMs ?: 0L).coerceAtLeast(0L)
+        project.copy(musicStartMs = ms.coerceIn(0L, max))
+    }
+
+    fun setOriginalAudioMuted(muted: Boolean) =
+        update { it.copy(originalAudioMuted = muted) }
+
+    // --- Capas -------------------------------------------------------------
+
+    fun addPngLayer(uri: Uri) = update { project ->
+        project.copy(
+            layers = project.layers + OverlayLayer(
+                id = "layer-${System.currentTimeMillis()}",
+                kind = LayerKind.PNG,
+                uri = uri.toString(),
+                label = "Imagen",
+                endMs = project.totalDurationMs.coerceAtLeast(1000L),
+            ),
+        )
+    }
+
+    fun addTextLayer(text: String, fontName: String?) = update { project ->
+        project.copy(
+            layers = project.layers + OverlayLayer(
+                id = "layer-${System.currentTimeMillis()}",
+                kind = LayerKind.TEXT,
+                text = text,
+                fontName = fontName,
+                label = text.ifBlank { "Texto" },
+                endMs = project.totalDurationMs.coerceAtLeast(1000L),
+            ),
+        )
+    }
+
+    fun updateLayer(layer: OverlayLayer) = update { project ->
+        project.copy(layers = project.layers.map { if (it.id == layer.id) layer else it })
+    }
+
+    fun removeLayer(id: String) =
+        update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }
+
+    // --- Exportación -------------------------------------------------------
+
+    fun export() {
+        if (_exporting.value) return
+        _exporting.value = true
+        _progress.value = 0
+        exporter.export(
+            _project.value,
+            object : VideoExporter.Callback {
+                override fun onProgress(percent: Int) {
+                    _progress.value = percent
+                }
+
+                override fun onSuccess(file: File) {
+                    viewModelScope.launch {
+                        val saved = withContext(Dispatchers.IO) {
+                            GallerySaver.saveToGallery(context, file)
+                        }
+                        _lastExport.value = file
+                        _exporting.value = false
+                        _message.value = if (saved != null) {
+                            "Vídeo guardado en la galería"
+                        } else {
+                            "Vídeo exportado"
+                        }
+                    }
+                }
+
+                override fun onError(message: String) {
+                    _exporting.value = false
+                    _message.value = message
+                }
+            },
+        )
+    }
+
+    fun shareLastExport() {
+        _lastExport.value?.let { ShareUtils.shareVideo(context, it) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        exporter.cancel()
+    }
+}
