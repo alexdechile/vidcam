@@ -42,22 +42,22 @@
 ## 6. Edición de audio
 
 - [x] 6.1 Implementar el conmutador de silencio del audio original en el modelo y la vista previa (D5)
-- [ ] 6.2 Implementar la reproducción de la música alineada al inicio del proyecto en la vista previa
+- [x] 6.2 Implementar la reproducción de la música alineada al inicio del proyecto en la vista previa
 - [x] 6.3 Permitir elegir el punto de inicio de la música y recortarla cuando exceda el timeline
 - [x] 6.4 Configurar la mezcla de audio en Transformer con secuencias de `Composition` (`setRemoveAudio` para silenciar y `setIsLooping` para la música en bucle); Media3 1.5.1 no expone `AudioMixerSettings` (D4, D5)
 
 ## 7. Capas PNG transparentes
 
-- [ ] 7.1 Agregar el conjunto integrado de PNG con alfa en `assets/` y la selección desde la galería (D7)
-- [ ] 7.2 Implementar el modelo y los gestos de mover, escalar y rotar capas PNG en la vista previa (D3, D7)
-- [ ] 7.3 Configurar la duración de cada capa PNG y reflejarla en la vista previa
+- [x] 7.1 Agregar el conjunto integrado de PNG con alfa en `assets/` y la selección desde la galería (D7)
+- [x] 7.2 Implementar el modelo y los gestos de mover, escalar y rotar capas PNG en la vista previa (D3, D7)
+- [x] 7.3 Configurar la duración de cada capa PNG y reflejarla en la vista previa
 - [x] 7.4 Aplicar las capas PNG en la exportación con `BitmapOverlay` respetando el canal alfa (D4, D7)
 
 ## 8. Textos con Google Fonts
 
 - [x] 8.1 Implementar el modelo de texto con contenido, tamaño, color y posición, y su edición en Compose
 - [x] 8.2 Integrar el proveedor de fuentes descargables de Google Fonts con caché y selector de fuentes (D6)
-- [ ] 8.3 Implementar el fallback a fuente local y el aviso cuando una fuente no esté disponible sin conexión
+- [x] 8.3 Implementar el fallback a fuente local y el aviso cuando una fuente no esté disponible sin conexión
 - [x] 8.4 Aplicar los textos con su fuente en la exportación rasterizando el texto a un `BitmapOverlay` (Media3 1.5.1 no aplica Google Fonts descargables en `TextOverlay`) (D4, D6)
 
 ## 9. Exportación, guardado y compartir

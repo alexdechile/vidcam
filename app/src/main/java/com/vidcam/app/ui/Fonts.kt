@@ -1,7 +1,11 @@
 package com.vidcam.app.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.googlefonts.GoogleFont
+import androidx.compose.ui.text.googlefonts.isAvailableOnDevice
 import com.vidcam.app.R
 import androidx.compose.ui.text.googlefonts.Font as GoogleFontResource
 
@@ -23,7 +27,27 @@ private val googleFontProvider = GoogleFont.Provider(
     certificates = R.array.com_google_android_gms_fonts_certs,
 )
 
-fun googleFontFamily(name: String?): FontFamily {
-    if (name.isNullOrBlank()) return FontFamily.Default
-    return FontFamily(GoogleFontResource(GoogleFont(name), googleFontProvider))
+/** Indica si el proveedor de fuentes de Google Play Services está disponible. */
+@Composable
+fun rememberGoogleFontsAvailable(): Boolean {
+    val context = LocalContext.current
+    return remember {
+        runCatching { isAvailableOnDevice(googleFontProvider, context) }.getOrDefault(false)
+    }
+}
+
+/**
+ * Familia tipográfica para [name]; si el proveedor no está disponible (por
+ * ejemplo sin conexión o sin Google Play Services) cae a la fuente del sistema.
+ */
+@Composable
+fun rememberGoogleFontFamily(name: String?): FontFamily {
+    val available = rememberGoogleFontsAvailable()
+    return remember(available, name) {
+        if (name.isNullOrBlank() || !available) {
+            FontFamily.Default
+        } else {
+            FontFamily(GoogleFontResource(GoogleFont(name), googleFontProvider))
+        }
+    }
 }

@@ -42,10 +42,15 @@ class LayerBitmapOverlay(
 @androidx.annotation.OptIn(UnstableApi::class)
 object LayerBitmaps {
 
+    const val ASSET_SCHEME = "asset://"
+
     fun decodePng(context: Context, uriString: String): Bitmap? = try {
-        context.contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
-            BitmapFactory.decodeStream(input)
+        val stream = if (uriString.startsWith(ASSET_SCHEME)) {
+            context.assets.open(uriString.removePrefix(ASSET_SCHEME))
+        } else {
+            context.contentResolver.openInputStream(Uri.parse(uriString))
         }
+        stream?.use { BitmapFactory.decodeStream(it) }
     } catch (e: Exception) {
         null
     }

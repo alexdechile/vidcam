@@ -2,12 +2,15 @@
 
 package com.vidcam.app.editor
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,11 +64,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -76,15 +86,20 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.vidcam.app.capture.CameraRecorder
+import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
+import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.ui.BUILT_IN_STICKERS
 import com.vidcam.app.ui.CameraPreview
 import com.vidcam.app.ui.GOOGLE_FONT_NAMES
-import com.vidcam.app.ui.googleFontFamily
+import com.vidcam.app.ui.rememberGoogleFontFamily
+import com.vidcam.app.ui.rememberGoogleFontsAvailable
+import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDuration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -107,6 +122,7 @@ fun EditorScreen(viewModel: EditorViewModel) {
     var recording by remember { mutableStateOf(false) }
     var showMusicSheet by remember { mutableStateOf(false) }
     var showTextDialog by remember { mutableStateOf(false) }
+    var showStickerDialog by remember { mutableStateOf(false) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
 
     DisposableEffect(lifecycleOwner) {
@@ -177,13 +193,12 @@ fun EditorScreen(viewModel: EditorViewModel) {
                     .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
-                val firstClip = project.clips.firstOrNull()
-                if (firstClip == null) {
+                if (project.clips.isEmpty()) {
                     CameraPreview(recorder = recorder, modifier = Modifier.fillMaxSize())
                 } else {
                     TimelinePreview(
-                        clip = firstClip,
-                        layers = project.layers,
+                        project = project,
+                        onLayerChange = viewModel::updateLayer,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -205,6 +220,7 @@ fun EditorScreen(viewModel: EditorViewModel) {
                     )
                 },
                 onAddText = { showTextDialog = true },
+                onAddSticker = { showStickerDialog = true },
                 onMusic = { showMusicSheet = true },
                 viewModel = viewModel,
             )
@@ -223,6 +239,16 @@ fun EditorScreen(viewModel: EditorViewModel) {
             onConfirm = { text, font ->
                 viewModel.addTextLayer(text, font)
                 showTextDialog = false
+            },
+        )
+    }
+
+    if (showStickerDialog) {
+        StickerPickerDialog(
+            onDismiss = { showStickerDialog = false },
+            onPick = { path ->
+                viewModel.addPngLayer(Uri.parse(stickerAssetUri(path)))
+                showStickerDialog = false
             },
         )
     }
@@ -269,6 +295,7 @@ private fun ControlsSection(
     onImportVideo: () -> Unit,
     onAddPng: () -> Unit,
     onAddText: () -> Unit,
+    onAddSticker: () -> Unit,
     onMusic: () -> Unit,
     viewModel: EditorViewModel,
 ) {
@@ -300,6 +327,8 @@ private fun ControlsSection(
             OutlinedButton(onClick = onAddPng) { Text("PNG") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onAddText) { Text("Texto") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onAddSticker) { Text("Sticker") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onMusic) { Text("Música") }
         }
@@ -417,72 +446,230 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun TimelinePreview(clip: VideoClip, layers: List<OverlayLayer>, modifier: Modifier) {
+private fun TimelinePreview(
+    project: Project,
+    onLayerChange: (OverlayLayer) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
-    val exoPlayer = remember {
+    val videoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
+            repeatMode = Player.REPEAT_MODE_ALL
             playWhenReady = true
-            volume = 0f
+        }
+    }
+    val musicPlayer = remember {
+        ExoPlayer.Builder(context).build().apply { playWhenReady = true }
+    }
+    val clipsState = rememberUpdatedState(project.clips)
+    var positionMs by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(project.clips) {
+        val items = project.clips.map { clip ->
+            MediaItem.Builder()
+                .setUri(clip.uri)
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(clip.trimStartMs)
+                        .setEndPositionMs(clip.trimEndMs)
+                        .build(),
+                )
+                .build()
+        }
+        videoPlayer.setMediaItems(items)
+        videoPlayer.prepare()
+        videoPlayer.play()
+    }
+
+    LaunchedEffect(
+        project.music,
+        project.musicEnabled,
+        project.musicStartMs,
+        project.originalAudioMuted,
+        project.totalDurationMs,
+    ) {
+        videoPlayer.volume = if (project.originalAudioMuted) 0f else 1f
+        val music = project.music
+        if (music == null || !project.musicEnabled || project.totalDurationMs <= 0L) {
+            musicPlayer.stop()
+            musicPlayer.clearMediaItems()
+        } else {
+            val start = project.musicStartMs.coerceIn(
+                0L,
+                (music.durationMs - 1L).coerceAtLeast(0L),
+            )
+            val end = (start + project.totalDurationMs).coerceAtMost(music.durationMs)
+            musicPlayer.repeatMode = if (TimelineMath.musicShouldLoop(project)) {
+                Player.REPEAT_MODE_ONE
+            } else {
+                Player.REPEAT_MODE_OFF
+            }
+            musicPlayer.setMediaItem(
+                MediaItem.Builder()
+                    .setUri(music.uri)
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(start)
+                            .setEndPositionMs(end)
+                            .build(),
+                    )
+                    .build(),
+            )
+            musicPlayer.prepare()
+            musicPlayer.play()
         }
     }
 
-    LaunchedEffect(clip.uri, clip.trimStartMs, clip.trimEndMs) {
-        val mediaItem = MediaItem.Builder()
-            .setUri(clip.uri)
-            .setClippingConfiguration(
-                MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(clip.trimStartMs)
-                    .setEndPositionMs(clip.trimEndMs)
-                    .build(),
-            )
-            .build()
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.prepare()
+    LaunchedEffect(videoPlayer) {
+        while (true) {
+            val clips = clipsState.value
+            val index = videoPlayer.currentMediaItemIndex
+            val base = if (index in clips.indices) {
+                clips.take(index).sumOf { it.trimmedDurationMs }
+            } else {
+                0L
+            }
+            positionMs = base + videoPlayer.currentPosition
+            delay(100L)
+        }
     }
 
     DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
+        onDispose {
+            videoPlayer.release()
+            musicPlayer.release()
+        }
     }
 
     BoxWithConstraints(modifier) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    player = exoPlayer
+                    player = videoPlayer
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
-        val width = maxWidth
-        val height = maxHeight
-        layers.forEach { layer ->
-            Box(
-                modifier = Modifier.offset(
-                    x = width * layer.x - width * 0.15f,
-                    y = height * layer.y - height * 0.03f,
-                ),
-            ) {
-                if (layer.kind == LayerKind.TEXT) {
-                    Text(
-                        text = layer.text,
-                        color = Color(layer.colorArgb),
-                        fontFamily = googleFontFamily(layer.fontName),
-                        fontSize = (layer.fontSizeSp / 3f).sp,
+        val density = LocalDensity.current
+        val containerWidth = with(density) { maxWidth.toPx() }
+        val containerHeight = with(density) { maxHeight.toPx() }
+        Box(modifier = Modifier.fillMaxSize()) {
+            project.layers
+                .filter { positionMs in it.startMs..it.endMs }
+                .forEach { layer ->
+                    LayerBox(
+                        layer = layer,
+                        containerWidth = containerWidth,
+                        containerHeight = containerHeight,
+                        onLayerChange = onLayerChange,
                     )
-                } else {
-                    Surface(
-                        color = Color.White.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, Color.White),
-                    ) {
-                        Text(text = "PNG", color = Color.White, modifier = Modifier.padding(4.dp))
-                    }
                 }
+        }
+    }
+}
+
+@Composable
+private fun LayerBox(
+    layer: OverlayLayer,
+    containerWidth: Float,
+    containerHeight: Float,
+    onLayerChange: (OverlayLayer) -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val bitmap = remember(layer.kind, layer.uri) {
+        if (layer.kind == LayerKind.PNG) {
+            layer.uri?.let { LayerBitmaps.decodePng(context, it) }
+        } else {
+            null
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .offset(
+                x = with(density) { (containerWidth * layer.x - containerWidth * 0.15f).toDp() },
+                y = with(density) { (containerHeight * layer.y - containerHeight * 0.03f).toDp() },
+            )
+            .graphicsLayer(
+                scaleX = layer.scale,
+                scaleY = layer.scale,
+                rotationZ = layer.rotationDeg,
+            )
+            .pointerInput(layer.id) {
+                detectTransformGestures { _, pan, zoom, rotation ->
+                    onLayerChange(
+                        layer.copy(
+                            x = (layer.x + pan.x / containerWidth).coerceIn(0f, 1f),
+                            y = (layer.y + pan.y / containerHeight).coerceIn(0f, 1f),
+                            scale = (layer.scale * zoom).coerceIn(0.2f, 4f),
+                            rotationDeg = layer.rotationDeg + rotation,
+                        ),
+                    )
+                }
+            },
+    ) {
+        when {
+            layer.kind == LayerKind.TEXT -> Text(
+                text = layer.text,
+                color = Color(layer.colorArgb),
+                fontFamily = rememberGoogleFontFamily(layer.fontName),
+                fontSize = (layer.fontSizeSp / 3f).sp,
+            )
+
+            bitmap != null -> Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = layer.label,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(120.dp),
+            )
+
+            else -> Surface(
+                color = Color.White.copy(alpha = 0.2f),
+                border = BorderStroke(1.dp, Color.White),
+            ) {
+                Text(text = "PNG", color = Color.White, modifier = Modifier.padding(4.dp))
             }
         }
     }
+}
+
+@Composable
+private fun StickerPickerDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stickers") },
+        text = {
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(BUILT_IN_STICKERS) { path ->
+                    val bitmap = remember(path) {
+                        LayerBitmaps.decodePng(context, stickerAssetUri(path))
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(path) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = path,
+                                modifier = Modifier.size(40.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(text = path.substringAfterLast('/').removeSuffix(".png"))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
 }
 
 @Composable
@@ -551,12 +738,17 @@ private fun TextLayerDialog(onDismiss: () -> Unit, onConfirm: (String, String?) 
                 Spacer(Modifier.height(12.dp))
                 Box {
                     OutlinedButton(onClick = { expanded = true }) {
-                        Text(text = font, fontFamily = googleFontFamily(font))
+                        Text(text = font, fontFamily = rememberGoogleFontFamily(font))
                     }
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         GOOGLE_FONT_NAMES.forEach { name ->
                             DropdownMenuItem(
-                                text = { Text(text = name, fontFamily = googleFontFamily(name)) },
+                                text = {
+                                    Text(
+                                        text = name,
+                                        fontFamily = rememberGoogleFontFamily(name),
+                                    )
+                                },
                                 onClick = {
                                     font = name
                                     expanded = false
@@ -564,6 +756,14 @@ private fun TextLayerDialog(onDismiss: () -> Unit, onConfirm: (String, String?) 
                             )
                         }
                     }
+                }
+                if (!rememberGoogleFontsAvailable()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Sin conexión o sin Google Play Services: se usará la " +
+                            "fuente del sistema.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         },
