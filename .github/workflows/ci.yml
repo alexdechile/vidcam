@@ -24,8 +24,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Lint, tests and debug build
-        run: ./gradlew lint test assembleDebug --stacktrace
+      - name: Lint, unit tests, debug and androidTest build
+        run: ./gradlew lint test assembleDebug assembleDebugAndroidTest --stacktrace
 
       - name: Upload lint report
         if: always()

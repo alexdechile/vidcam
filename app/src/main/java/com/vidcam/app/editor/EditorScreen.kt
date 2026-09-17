@@ -106,7 +106,11 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
-fun EditorScreen(viewModel: EditorViewModel) {
+fun EditorScreen(
+    viewModel: EditorViewModel,
+    canRecord: Boolean = true,
+    onRequestPermissions: () -> Unit = {},
+) {
     val project by viewModel.project.collectAsStateWithLifecycle()
     val exporting by viewModel.exporting.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
@@ -125,8 +129,8 @@ fun EditorScreen(viewModel: EditorViewModel) {
     var showStickerDialog by remember { mutableStateOf(false) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
 
-    DisposableEffect(lifecycleOwner) {
-        recorder.controller.bindToLifecycle(lifecycleOwner)
+    DisposableEffect(lifecycleOwner, canRecord) {
+        if (canRecord) recorder.controller.bindToLifecycle(lifecycleOwner)
         onDispose { recorder.stop() }
     }
 
@@ -194,7 +198,11 @@ fun EditorScreen(viewModel: EditorViewModel) {
                 contentAlignment = Alignment.Center,
             ) {
                 if (project.clips.isEmpty()) {
-                    CameraPreview(recorder = recorder, modifier = Modifier.fillMaxSize())
+                    if (canRecord) {
+                        CameraPreview(recorder = recorder, modifier = Modifier.fillMaxSize())
+                    } else {
+                        ImportOnlyPlaceholder(onRequestPermissions = onRequestPermissions)
+                    }
                 } else {
                     TimelinePreview(
                         project = project,
@@ -207,6 +215,8 @@ fun EditorScreen(viewModel: EditorViewModel) {
             ControlsSection(
                 project = project,
                 recording = recording,
+                canRecord = canRecord,
+                onRequestPermissions = onRequestPermissions,
                 onToggleLens = recorder::toggleLens,
                 onToggleRecord = { if (recording) recorder.stop() else startRecording() },
                 onImportVideo = {
@@ -287,9 +297,33 @@ fun EditorScreen(viewModel: EditorViewModel) {
 }
 
 @Composable
+private fun ImportOnlyPlaceholder(onRequestPermissions: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp),
+    ) {
+        Text(
+            text = "Sin acceso a la cámara",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Puedes importar un vídeo o conceder el permiso para grabar.",
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRequestPermissions) { Text("Permiso de cámara") }
+    }
+}
+
+@Composable
 private fun ControlsSection(
     project: Project,
     recording: Boolean,
+    canRecord: Boolean,
+    onRequestPermissions: () -> Unit,
     onToggleLens: () -> Unit,
     onToggleRecord: () -> Unit,
     onImportVideo: () -> Unit,
@@ -309,12 +343,16 @@ private fun ControlsSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (project.clips.isEmpty()) {
-                OutlinedButton(onClick = onToggleLens) { Text("Girar") }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onToggleRecord) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (recording) "Detener" else "Grabar")
+                if (canRecord) {
+                    OutlinedButton(onClick = onToggleLens) { Text("Girar") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onToggleRecord) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (recording) "Detener" else "Grabar")
+                    }
+                } else {
+                    OutlinedButton(onClick = onRequestPermissions) { Text("Permiso de cámara") }
                 }
                 Spacer(Modifier.width(8.dp))
             }

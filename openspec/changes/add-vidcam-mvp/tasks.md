@@ -23,7 +23,7 @@
 - [x] 3.3 Agregar el clip grabado al timeline al finalizar la grabación (D3)
 - [x] 3.4 Implementar la importación de vídeos con el selector de medios del sistema y agregarlos como clips (D8)
 - [x] 3.5 Recortar a 30 segundos los clips importados mayores al límite y avisar al usuario
-- [ ] 3.6 Manejar el estado sin permisos habilitando solo la importación cuando falte la cámara
+- [x] 3.6 Manejar el estado sin permisos habilitando solo la importación cuando falte la cámara
 
 ## 4. Biblioteca de música
 
@@ -72,6 +72,6 @@
 
 - [x] 10.1 Escribir pruebas unitarias de los cálculos de recorte, duración total y validación de límites (D3)
 - [x] 10.2 Escribir pruebas unitarias de la selección y el recorte de la pista de música (D5)
-- [ ] 10.3 Agregar pruebas de UI de Compose para la pantalla de permisos y la pantalla del editor
+- [x] 10.3 Agregar pruebas de UI de Compose para la pantalla de permisos y la pantalla del editor
 - [ ] 10.4 Probar en dispositivos o emuladores API 26, 30 y 34+ el flujo completo: grabar, importar, música, capas, textos, exportar y compartir
 - [x] 10.5 Documentar en el README los secrets de firma y el proceso de release, y etiquetar la primera versión `v1.0.0` para validar el workflow de release

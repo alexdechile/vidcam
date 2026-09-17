@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vidcam.app.editor.EditorScreen
 import com.vidcam.app.editor.EditorViewModel
@@ -20,24 +22,37 @@ import com.vidcam.app.permissions.Permissions
 @Composable
 fun VidCamApp() {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(Permissions.allGranted(context)) }
+    var mediaGranted by remember { mutableStateOf(Permissions.mediaGranted(context)) }
+    var canRecord by remember { mutableStateOf(Permissions.recordingGranted(context)) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        granted = Permissions.allGranted(context)
+        mediaGranted = Permissions.mediaGranted(context)
+        canRecord = Permissions.recordingGranted(context)
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        mediaGranted = Permissions.mediaGranted(context)
+        canRecord = Permissions.recordingGranted(context)
     }
 
     LaunchedEffect(Unit) {
-        if (!granted && !Permissions.wasRequested(context)) {
+        if (!mediaGranted && !Permissions.wasRequested(context)) {
             Permissions.markRequested(context)
             launcher.launch(Permissions.essential.toTypedArray())
         }
     }
 
-    if (granted) {
+    if (mediaGranted) {
         val editorViewModel: EditorViewModel = viewModel()
-        EditorScreen(viewModel = editorViewModel)
+        EditorScreen(
+            viewModel = editorViewModel,
+            canRecord = canRecord,
+            onRequestPermissions = {
+                launcher.launch(Permissions.essential.toTypedArray())
+            },
+        )
     } else {
         PermissionScreen(
             onRequest = { launcher.launch(Permissions.essential.toTypedArray()) },
