@@ -680,7 +680,7 @@ private fun LayerBox(
                                         dragging = true
                                         val delta = change.position - lastPosition
                                         lastPosition = change.position
-                                        val current = currentLayer.value
+                                        val current = currentLayer
                                         onLayerChange(
                                             current.copy(
                                                 x = (current.x + delta.x / containerWidth)
@@ -701,7 +701,7 @@ private fun LayerBox(
                                     if (lastDistance > 0f) {
                                         val zoomFactor = distance / lastDistance
                                         val rotationDelta = angle - lastAngle
-                                        val current = currentLayer.value
+                                        val current = currentLayer
                                         onLayerChange(
                                             current.copy(
                                                 scale = (current.scale * zoomFactor)
