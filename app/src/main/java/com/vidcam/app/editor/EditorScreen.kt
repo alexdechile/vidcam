@@ -103,13 +103,12 @@ import com.vidcam.app.util.formatDuration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.input.pointer.awaitFirstDown
 import androidx.compose.ui.unit.IntOffset
 import java.io.File
 import kotlin.math.atan2
-import kotlin.math.toDegrees
 
 @Composable
 fun EditorScreen(
@@ -639,7 +638,7 @@ private fun LayerBox(
     Box(
         modifier = Modifier
             .defaultMinSize(48.dp, 48.dp)
-            .offset {
+            .offset { size ->
                 IntOffset(
                     x = (containerWidth * layer.x - size.width / 2).toInt(),
                     y = (containerHeight * layer.y - size.height / 2).toInt(),
