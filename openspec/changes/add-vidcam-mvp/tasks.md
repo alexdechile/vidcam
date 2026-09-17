@@ -50,6 +50,7 @@
 
 - [x] 7.1 Agregar el conjunto integrado de PNG con alfa en `assets/` y la selección desde la galería (D7)
 - [x] 7.2 Implementar el modelo y los gestos de mover, escalar y rotar capas PNG en la vista previa (D3, D7)
+  - Mejora implementada: gestos con `awaitPointerEventScope` (arrastre con un dedo, escalado/rotación con dos, toque para seleccionar), borde de selección en la capa activa, tamaño mínimo táctil de `48.dp` y posición aplicada con `graphicsLayer.translationX/Y` + `rotationZ` para mantener el centro del canvas.
 - [x] 7.3 Configurar la duración de cada capa PNG y reflejarla en la vista previa
 - [x] 7.4 Aplicar las capas PNG en la exportación con `BitmapOverlay` respetando el canal alfa (D4, D7)
 

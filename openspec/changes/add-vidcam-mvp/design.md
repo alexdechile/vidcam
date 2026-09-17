@@ -56,6 +56,7 @@ Un único flujo de `RequestMultiplePermissions` al primer arranque para `CAMERA`
 
 ### D9. Vista previa aproximada, exportación autoritativa
 La vista previa reproduce el vídeo base con ExoPlayer y dibuja las capas encima con Compose usando las mismas coordenadas normalizadas del modelo. La composición final (píxel a píxel, alfa, audio) la produce Transformer al exportar.
+La manipulación de capas en la vista previa usa un manejador de gestos propio en `awaitPointerEventScope` (en lugar de `detectTransformGestures`): un dedo arrastra la capa, dos dedos escalan y rotan respecto del centro del lienzo y un toque la selecciona; cada capa se muestra con un borde de selección cuando es la activa y tiene un tamaño mínimo táctil de `48.dp`. La posición se aplica vía `graphicsLayer.translationX/Y` y `rotationZ` para mantener el centro en el origen del canvas sin depender de overloads de `Modifier.offset` no disponibles en la versión de Compose del proyecto.
 - **Trade-off aceptado:** puede haber diferencias menores de renderizado que se mitigan compartiendo el modelo y las mismas métricas de layout.
 
 ### D10. CI/CD con GitHub Actions

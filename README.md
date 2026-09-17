@@ -2,8 +2,9 @@
 
 Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos:
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
-capas PNG transparentes, textos con Google Fonts y exportación a MP4 (H.264/AAC)
-con guardado en galería y hoja de compartir.
+capas PNG transparentes y textos con Google Fonts arrastrables, escalables y
+rotables en el lienzo, con exportación a MP4 (H.264/AAC) con guardado en galería
+y hoja de compartir.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`.
@@ -78,6 +79,10 @@ git push origin v1.0.0
 - Si faltan los permisos de cámara o micrófono pero hay acceso a medios, la app
   abre el editor en modo solo importación: oculta los controles de grabación y
   ofrece solicitar el permiso o abrir los ajustes.
+- Las capas (PNG con alfa y textos) se manipulan directamente en la vista previa:
+  un dedo arrastra, dos dedos escalan y rotan (pellizco), y un toque selecciona
+  la capa, que se resalta con un borde de selección. La posición, escala y
+  rotación se guardan normalizadas en el modelo y se replican en la exportación.
 
 ## Estructura
 
