@@ -625,6 +625,7 @@ private fun LayerBox(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val currentLayer by rememberUpdatedState(layer)
     val bitmap = remember(layer.kind, layer.uri) {
         if (layer.kind == LayerKind.PNG) {
             layer.uri?.let { LayerBitmaps.decodePng(context, it) }
@@ -653,7 +654,8 @@ private fun LayerBox(
                         val down = awaitFirstDown()
                         down.consume()
 
-                        var pastSlop = false
+                        var dragging = false
+                        var lastPointerCount = 0
                         var lastPosition = down.position
                         var lastDistance = 0f
                         var lastAngle = 0f
@@ -662,26 +664,35 @@ private fun LayerBox(
                             val event = awaitPointerEvent()
                             val changes = event.changes.filter { it.pressed }
 
+                            if (changes.size != lastPointerCount) {
+                                lastPointerCount = changes.size
+                                lastPosition = changes.firstOrNull()?.position ?: down.position
+                                lastDistance = 0f
+                                lastAngle = 0f
+                            }
+
                             when (changes.size) {
                                 1 -> {
                                     val change = changes.first()
                                     val pan = change.position - down.position
 
                                     if (pan.getDistance() > viewConfiguration.touchSlop) {
-                                        pastSlop = true
+                                        dragging = true
                                         val delta = change.position - lastPosition
                                         lastPosition = change.position
-
+                                        val current = currentLayer.value
                                         onLayerChange(
-                                            layer.copy(
-                                                x = (layer.x + delta.x / containerWidth).coerceIn(0f, 1f),
-                                                y = (layer.y + delta.y / containerHeight).coerceIn(0f, 1f),
+                                            current.copy(
+                                                x = (current.x + delta.x / containerWidth)
+                                                    .coerceIn(0f, 1f),
+                                                y = (current.y + delta.y / containerHeight)
+                                                    .coerceIn(0f, 1f),
                                             ),
                                         )
                                     }
                                 }
                                 2 -> {
-                                    pastSlop = true
+                                    dragging = true
                                     val p1 = changes[0].position
                                     val p2 = changes[1].position
                                     val distance = (p1 - p2).getDistance()
@@ -690,11 +701,12 @@ private fun LayerBox(
                                     if (lastDistance > 0f) {
                                         val zoomFactor = distance / lastDistance
                                         val rotationDelta = angle - lastAngle
-
+                                        val current = currentLayer.value
                                         onLayerChange(
-                                            layer.copy(
-                                                scale = (layer.scale * zoomFactor).coerceIn(0.2f, 4f),
-                                                rotationDeg = layer.rotationDeg +
+                                            current.copy(
+                                                scale = (current.scale * zoomFactor)
+                                                    .coerceIn(0.2f, 4f),
+                                                rotationDeg = current.rotationDeg +
                                                     Math.toDegrees(rotationDelta.toDouble()).toFloat(),
                                             ),
                                         )
@@ -708,7 +720,7 @@ private fun LayerBox(
                             changes.forEach { it.consume() }
                         } while (event.changes.any { it.pressed })
 
-                        if (!pastSlop) {
+                        if (!dragging) {
                             onSelect()
                         }
                     }
