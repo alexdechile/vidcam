@@ -10,7 +10,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -103,7 +102,14 @@ import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDuration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.awaitFirstDown
+import androidx.compose.ui.unit.IntOffset
 import java.io.File
+import kotlin.math.atan2
+import kotlin.math.toDegrees
 
 @Composable
 fun EditorScreen(
@@ -501,6 +507,7 @@ private fun TimelinePreview(
     }
     val clipsState = rememberUpdatedState(project.clips)
     var positionMs by remember { mutableStateOf(0L) }
+    var selectedLayerId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(project.clips) {
         val items = project.clips.map { clip ->
@@ -602,6 +609,8 @@ private fun TimelinePreview(
                         containerWidth = containerWidth,
                         containerHeight = containerHeight,
                         onLayerChange = onLayerChange,
+                        isSelected = layer.id == selectedLayerId,
+                        onSelect = { selectedLayerId = layer.id },
                     )
                 }
         }
@@ -614,6 +623,8 @@ private fun LayerBox(
     containerWidth: Float,
     containerHeight: Float,
     onLayerChange: (OverlayLayer) -> Unit,
+    isSelected: Boolean = false,
+    onSelect: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -627,25 +638,87 @@ private fun LayerBox(
 
     Box(
         modifier = Modifier
-            .offset(
-                x = with(density) { (containerWidth * layer.x - containerWidth * 0.15f).toDp() },
-                y = with(density) { (containerHeight * layer.y - containerHeight * 0.03f).toDp() },
-            )
+            .defaultMinSize(48.dp, 48.dp)
+            .offset {
+                IntOffset(
+                    x = (containerWidth * layer.x - size.width / 2).toInt(),
+                    y = (containerHeight * layer.y - size.height / 2).toInt(),
+                )
+            }
             .graphicsLayer(
                 scaleX = layer.scale,
                 scaleY = layer.scale,
                 rotationZ = layer.rotationDeg,
             )
+            .then(
+                if (isSelected) Modifier.border(2.dp, Color.Cyan, RoundedCornerShape(4.dp))
+                else Modifier
+            )
             .pointerInput(layer.id) {
-                detectTransformGestures { _, pan, zoom, rotation ->
-                    onLayerChange(
-                        layer.copy(
-                            x = (layer.x + pan.x / containerWidth).coerceIn(0f, 1f),
-                            y = (layer.y + pan.y / containerHeight).coerceIn(0f, 1f),
-                            scale = (layer.scale * zoom).coerceIn(0.2f, 4f),
-                            rotationDeg = layer.rotationDeg + rotation,
-                        ),
-                    )
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitFirstDown()
+                        down.consume()
+
+                        var pastSlop = false
+                        var lastPosition = down.position
+                        var lastDistance = 0f
+                        var lastAngle = 0f
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val changes = event.changes.filter { it.pressed }
+
+                            when (changes.size) {
+                                1 -> {
+                                    val change = changes.first()
+                                    val pan = change.position - down.position
+
+                                    if (pan.getDistance() > viewConfiguration.touchSlop) {
+                                        pastSlop = true
+                                        val delta = change.position - lastPosition
+                                        lastPosition = change.position
+
+                                        onLayerChange(
+                                            layer.copy(
+                                                x = (layer.x + delta.x / containerWidth).coerceIn(0f, 1f),
+                                                y = (layer.y + delta.y / containerHeight).coerceIn(0f, 1f),
+                                            ),
+                                        )
+                                    }
+                                }
+                                2 -> {
+                                    pastSlop = true
+                                    val p1 = changes[0].position
+                                    val p2 = changes[1].position
+                                    val distance = (p1 - p2).getDistance()
+                                    val angle = atan2(p2.y - p1.y, p2.x - p1.x)
+
+                                    if (lastDistance > 0f) {
+                                        val zoomFactor = distance / lastDistance
+                                        val rotationDelta = angle - lastAngle
+
+                                        onLayerChange(
+                                            layer.copy(
+                                                scale = (layer.scale * zoomFactor).coerceIn(0.2f, 4f),
+                                                rotationDeg = layer.rotationDeg +
+                                                    Math.toDegrees(rotationDelta.toDouble()).toFloat(),
+                                            ),
+                                        )
+                                    }
+
+                                    lastDistance = distance
+                                    lastAngle = angle
+                                }
+                            }
+
+                            changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+
+                        if (!pastSlop) {
+                            onSelect()
+                        }
+                    }
                 }
             },
     ) {
