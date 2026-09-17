@@ -24,8 +24,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Lint, unit tests, debug and androidTest build
-        run: ./gradlew lint test assembleDebug assembleDebugAndroidTest --stacktrace
+      - name: Lint, unit tests, debug, release and androidTest build
+        run: ./gradlew lint test assembleDebug assembleDebugAndroidTest assembleRelease --stacktrace
 
       - name: Upload lint report
         if: always()
@@ -43,4 +43,11 @@ jobs:
         with:
           name: vidcam-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcam-release-apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
