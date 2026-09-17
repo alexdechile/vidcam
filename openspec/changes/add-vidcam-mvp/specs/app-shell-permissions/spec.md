@@ -19,6 +19,17 @@ La aplicación DEBE (MUST) solicitar los permisos de cámara, micrófono y lectu
 - **WHEN** el usuario marcó no volver a preguntar y vuelve a abrir la aplicación
 - **THEN** la aplicación muestra un enlace directo a los ajustes del sistema para habilitar el permiso manualmente
 
+### Requirement: Degradación a modo solo importación
+Cuando falten los permisos de cámara o micrófono pero estén concedidos los de lectura de medios, la aplicación DEBE (MUST) permitir entrar al editor y usar importación, música, capas y exportación, y DEBE (MUST) reemplazar los controles de grabación por un aviso que permita solicitar el permiso o abrir los ajustes.
+
+#### Scenario: Cámara denegada pero medios concedidos
+- **WHEN** el usuario concede los permisos de medios pero deniega los de cámara o micrófono
+- **THEN** la aplicación abre el editor sin los controles de grabación, muestra un aviso de falta de acceso a la cámara y permite importar vídeos, añadir capas y exportar
+
+#### Scenario: Permiso de cámara habilitado después
+- **WHEN** el usuario concede la cámara desde el aviso o desde los ajustes del sistema y vuelve a la aplicación
+- **THEN** la vista previa de la cámara y los controles de grabación se habilitan
+
 ### Requirement: Lectura de medios sin permiso adicional en versiones compatibles
 La aplicación DEBE (MUST) usar el selector de medios del sistema para importar vídeos e imágenes cuando el sistema operativo lo provea, de modo que no se solicite permiso de almacenamiento adicional.
 

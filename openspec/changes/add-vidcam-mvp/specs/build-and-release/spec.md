@@ -5,11 +5,11 @@ Define cómo se compila y verifica la aplicación de forma automática y reprodu
 ## ADDED Requirements
 
 ### Requirement: Verificación continua en GitHub Actions
-El repositorio DEBE (MUST) compilar y verificar la aplicación automáticamente en cada push y pull request mediante un workflow de GitHub Actions que ejecute lint, pruebas unitarias y el ensamblado de depuración.
+El repositorio DEBE (MUST) compilar y verificar la aplicación automáticamente en cada push y pull request mediante un workflow de GitHub Actions que ejecute lint, pruebas unitarias, la compilación de los tests instrumentados y los ensamblados de depuración y release.
 
 #### Scenario: Pull request verificado
 - **WHEN** se abre o actualiza un pull request hacia la rama principal
-- **THEN** GitHub Actions ejecuta lint, pruebas y el ensamblado de depuración, y el resultado queda reportado en el pull request
+- **THEN** GitHub Actions ejecuta lint, pruebas unitarias, la compilación de los tests instrumentados y los ensamblados de depuración y release, y el resultado queda reportado en el pull request
 
 #### Scenario: Build falla por lint o pruebas
 - **WHEN** el lint o una prueba unitaria falla
@@ -21,6 +21,17 @@ El workflow de verificación DEBE (MUST) publicar el APK de depuración como art
 #### Scenario: Descargar el APK de depuración
 - **WHEN** el workflow de verificación termina correctamente
 - **THEN** el APK de depuración queda disponible como artefacto descargable asociado a esa ejecución
+
+### Requirement: APK de release minificado
+El build de release DEBE (MUST) usar R8 y reducción de recursos para producir un APK sustancialmente más pequeño que el de depuración sin minificar, y el workflow de verificación DEBE (MUST) compilar el release en cada push para validar la ofuscación y publicar ese APK como artefacto.
+
+#### Scenario: Release minificado disponible
+- **WHEN** el workflow de verificación termina correctamente
+- **THEN** el APK de release queda ofuscado, con recursos reducidos, y disponible como artefacto descargable
+
+#### Scenario: Fallo de ofuscación
+- **WHEN** R8 falla por una regla de keep faltante
+- **THEN** el workflow de verificación termina en error y no publica el artefacto de release
 
 ### Requirement: Release firmado con secrets
 El repositorio DEBE (MUST) generar un APK o AAB firmado al crear un tag de versión o al ejecutar manualmente el workflow de release, usando un keystore provisto exclusivamente mediante secrets del repositorio.

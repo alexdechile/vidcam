@@ -5,13 +5,13 @@ No existe todavía una app Android propia en este repositorio. Se necesita una h
 ## What Changes
 
 - Se crea la aplicación Android **VidCam** (Kotlin + Jetpack Compose, un solo módulo `:app`) con una pantalla de edición minimalista.
-- Permisos de **cámara, micrófono y acceso a medios** solicitados en un único flujo al primer arranque, con fallback a ajustes si se deniegan.
+- Permisos de **cámara, micrófono y acceso a medios** solicitados en un único flujo al primer arranque, con fallback a ajustes si se deniegan y **modo solo importación** cuando falta la cámara.
 - **Grabación de vídeo** vertical de hasta 30 s con CameraX (cámara frontal/trasera) e **importación** de vídeos existentes del teléfono.
 - **Biblioteca de música** que lee de la carpeta de medios de Android (`MediaStore.Audio`) y permite usar una pista como audio del proyecto.
 - **Edición esencial no destructiva**: recorte (trim) de vídeo y audio, silenciado del audio original y mezcla con la música elegida.
 - **Capas visuales**: PNG con transparencia (stickers) y **textos con Google Fonts**, con posición, tamaño y duración.
 - **Exportación a MP4** (H.264 + AAC, 9:16) con guardado en la galería y hoja de compartir del sistema para publicar en redes sociales.
-- **CI/CD en GitHub Actions**: workflow de verificación (lint + tests + assembleDebug) y workflow de release firmado (APK/AAB) con keystore desde secrets.
+- **CI/CD en GitHub Actions**: workflow de verificación (lint + tests unitarios + tests instrumentados + ensamblados debug y release) y workflow de release firmado (APK/AAB) con keystore desde secrets. El APK de release se minifica con R8 y reducción de recursos.
 - Sin cambios de ruptura: es un proyecto nuevo.
 
 ## Capabilities
@@ -34,3 +34,4 @@ No existe todavía una app Android propia en este repositorio. Se necesita una h
 - **Infraestructura**: `.github/workflows/ci.yml` y `.github/workflows/release.yml`; secrets de repositorio para el keystore de firma (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
 - **Almacenamiento**: uso de `MediaStore` + `FileProvider` para leer/crear archivos; procesamiento temporal en caché de la app.
 - **Compatibilidad**: `minSdk 26`, `targetSdk` vigente; sin dependencias nativas (sin FFmpeg).
+- **Tamaño**: el APK de release se minifica con R8 y `shrinkResources` (~15 MB sin minificar → ~3 MB), sin un `-keep` global de dependencias.

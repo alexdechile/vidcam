@@ -36,22 +36,22 @@ El proyecto se representa con un modelo serializable: clips de vídeo con `trimS
 - **Rationale:** separar la edición de la materialización permite recorte no destructivo y exportación reproducible.
 
 ### D4. Exportación y composición
-Media3 **Transformer** con la **Effects API** (OpenGL) para aplicar recortes, `BitmapOverlay` (PNG con alfa), `TextOverlay` y `AudioMixerSettings` para silenciar/mezclar audio. Salida MP4 H.264 + AAC 9:16, con resolución objetivo configurable (por defecto 1080×1920, con fallback a la resolución del origen).
+Media3 **Transformer** con la **Effects API** (OpenGL). Los recortes se aplican con `MediaItem.ClippingConfiguration`; las capas (PNG con alfa y textos, estos últimos rasterizados a un `Bitmap`) se dibujan con un `BitmapOverlay`. La mezcla de audio se resuelve con la composición de secuencias (`EditedMediaItemSequence` y `EditedMediaItem.setRemoveAudio`), ya que Media3 1.5.1 no expone un mezclador independiente. Salida MP4 H.264 + AAC 9:16, con resolución objetivo configurable (por defecto 1080×1920, con fallback a la resolución del origen).
 - **Alternativas descartadas:** FFmpeg (binario nativo grande y licencias), MP4Parser (sin composición GL de overlays), OpenGL/MediaCodec propio (complejidad y mantenimiento altos).
 
 ### D5. Audio
-Se usan las pistas de audio de los clips como audio base y una pista de música opcional de `MediaStore.Audio`. `AudioMixerSettings` permite silenciar el audio base y mezclar la música. Si la música es más larga que el timeline se recorta al segmento elegido; si es más corta, se repite en bucle hasta cubrir el timeline con un fundido de salida.
-- **Alternativa descartada:** transcodificar audio por separado y luego muxar (más pasos y más superficie de fallo).
+Se usan las pistas de audio de los clips como audio base y una pista de música opcional de `MediaStore.Audio`. `setRemoveAudio` silencia el audio base y la música se añade en una segunda secuencia de la `Composition`, de modo que Transformer mezcla ambas pistas al exportar. Si la música es más larga que el timeline se recorta al segmento elegido; si es más corta, se repite en bucle (`EditedMediaItemSequence.setIsLooping`) hasta cubrir el timeline con un fundido de salida.
+- **Alternativa descartada:** `AudioMixerSettings` (no existe en Media3 1.5.1; se resuelve con secuencias de la `Composition`).
 
 ### D6. Fuentes de Google
-`androidx.compose.ui:ui-text-google-fonts` con el proveedor de fuentes descargables. Las fuentes se descargan bajo demanda y quedan en caché del proveedor; si no hay red y no están en caché, se usa la fuente local predeterminada. La exportación usa la misma fuente ya cargada/resuelta.
+`androidx.compose.ui:ui-text-google-fonts` con el proveedor de fuentes descargables. Las fuentes se descargan bajo demanda y quedan en caché del proveedor. Se usa `GoogleFont(name, bestEffort = true)` para que una fuente no disponible (sin red y sin caché) caiga silenciosamente en la fuente local, y una comprobación de conectividad (`ConnectivityManager`) decide si mostrar el aviso de "se descargará con conexión". No se usa `isAvailableOnDevice` porque es API interna de la librería. La exportación usa la misma fuente ya resuelta.
 
 ### D7. Capas PNG
 Conjunto integrado pequeño de PNG con alfa en `assets/` más selección desde la galería mediante el selector de medios del sistema. En vista previa se dibujan con Compose; en exportación con `BitmapOverlay`.
 - **Rationale:** un set integrado garantiza la demo sin depender de archivos del usuario.
 
 ### D8. Permisos y primer arranque
-Un único flujo de `RequestMultiplePermissions` al primer arranque para `CAMERA`, `RECORD_AUDIO` y permisos de medios (con variantes por versión), persistido en preferencias. La importación de vídeos/imágenes usa el selector de medios del sistema para no requerir permiso de lectura global cuando está disponible.
+Un único flujo de `RequestMultiplePermissions` al primer arranque para `CAMERA`, `RECORD_AUDIO` y permisos de medios (con variantes por versión), persistido en preferencias. Los permisos se agrupan en `recording` (cámara + micrófono) y `media` (lectura). La importación de vídeos/imágenes usa el selector de medios del sistema para no requerir permiso de lectura global cuando está disponible. Si los permisos de medios están concedidos pero faltan los de grabación, la app entra igualmente al editor en **modo solo importación**: se oculta el control de grabación, la vista previa se reemplaza por un aviso y se ofrece solicitar el permiso o abrir los ajustes; al volver a primer plano se reevalúan los permisos (`LifecycleEventEffect`).
 - **Alternativa descartada:** pedir permisos de forma perezosa (peor experiencia, solicitado explícitamente "una vez al arrancar").
 
 ### D9. Vista previa aproximada, exportación autoritativa
@@ -59,15 +59,21 @@ La vista previa reproduce el vídeo base con ExoPlayer y dibuja las capas encima
 - **Trade-off aceptado:** puede haber diferencias menores de renderizado que se mitigan compartiendo el modelo y las mismas métricas de layout.
 
 ### D10. CI/CD con GitHub Actions
-- `ci.yml`: en `push`/`pull_request` corre `./gradlew lint test assembleDebug` con `gradle/actions/setup-gradle` y JDK 17, y sube el APK de depuración como artefacto.
-- `release.yml`: en tags `v*` o ejecución manual decodifica el keystore desde `KEYSTORE_BASE64`, firma `assembleRelease`/`bundleRelease` y publica APK/AAB como artefacto y GitHub Release.
-- La configuración de firma lee el keystore desde variables de entorno; si no existen, el build de depuración sigue funcionando con la clave de depuración.
+- `ci.yml`: en `push`/`pull_request` corre `./gradlew lint test assembleDebug assembleDebugAndroidTest assembleRelease` con `gradle/actions/setup-gradle` y JDK 17, y sube el APK de depuración, el APK de release (firmado con la clave de depuración al no haber secrets) y el reporte de lint como artefactos.
+- `release.yml`: en tags `v*` o ejecución manual valida que exista `KEYSTORE_BASE64` (falla con mensaje explícito si falta), decodifica el keystore, firma `assembleRelease`/`bundleRelease` y publica APK/AAB como artefacto y GitHub Release. Requiere el permiso `contents: write` del `GITHUB_TOKEN`.
+- La configuración de firma lee el keystore desde variables de entorno; si no existen, los builds de depuración y el release de CI siguen funcionando con la clave de depuración.
 - **Alternativa descartada:** servicios de CI propietarios (el requisito pide GitHub Actions).
+
+### D11. Tamaño del APK y minificación
+El APK de release se compila con R8 (`isMinifyEnabled`) y reducción de recursos (`isShrinkResources`) para bajar el peso (~15 MB sin minificar → ~3 MB). Se confía en las reglas de consumer de Media3, CameraX y Compose en lugar de un `-keep` global, y CI compila el release en cada push para detectar problemas de ofuscación.
+- **Rationale:** el grueso del peso son las clases dex; los splits por ABI no aportan porque las librerías nativas suman menos de 300 KB.
+- **Trade-off aceptado:** CI no ejecuta el APK, así que una regla de keep faltante se detectaría en la prueba manual (tarea 10.4).
 
 ## Risks / Trade-offs
 
 - **[Render de overlays costoso en exportación]** → limitar el número de capas visibles simultáneas, usar el encoder por hardware y resolución objetivo acotada.
-- **[`AudioMixerSettings` es API experimental y puede cambiar entre versiones de Media3]** → fijar la versión de Media3 y aislar el pipeline de audio tras una interfaz propia para poder cambiar la implementación.
+- **[APIs experimentales de Media3 Transformer]** → fijar la versión de Media3 (1.5.1), aislar overlays y pipeline de audio en clases propias (`Overlays`, `VideoExporter`) y anotar los usos con `@OptIn(UnstableApi::class)`.
+- **[R8 elimina clases usadas por reflexión]** → confiar en las reglas de consumer de las librerías y compilar el release en CI; la verificación final es la prueba en dispositivo (tarea 10.4).
 - **[Diferencias entre vista previa y exportación]** → modelo único con coordenadas normalizadas y verificación de un caso de prueba por tipo de capa.
 - **[Fuente de Google sin conexión]** → fallback a fuente local y aviso al usuario; precarga opcional de las fuentes favoritas.
 - **[Duración/memoria en dispositivos gama baja]** → grabar y exportar por streaming a `cacheDir`, evitar mantener el vídeo completo en memoria y liberar recursos al salir.

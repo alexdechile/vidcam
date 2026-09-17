@@ -75,3 +75,4 @@
 - [x] 10.3 Agregar pruebas de UI de Compose para la pantalla de permisos y la pantalla del editor
 - [ ] 10.4 Probar en dispositivos o emuladores API 26, 30 y 34+ el flujo completo: grabar, importar, música, capas, textos, exportar y compartir
 - [x] 10.5 Documentar en el README los secrets de firma y el proceso de release, y etiquetar la primera versión `v1.0.0` para validar el workflow de release
+- [x] 10.6 Minificar y reducir recursos del release (R8 + `shrinkResources`), compilar el release en CI y verificar el tamaño del APK (~3 MB)
