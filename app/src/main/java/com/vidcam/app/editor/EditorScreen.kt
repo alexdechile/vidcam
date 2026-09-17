@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -106,7 +105,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.unit.IntOffset
 import java.io.File
 import kotlin.math.atan2
 
@@ -638,17 +636,13 @@ private fun LayerBox(
     Box(
         modifier = Modifier
             .defaultMinSize(48.dp, 48.dp)
-            .offset { size ->
-                IntOffset(
-                    x = (containerWidth * layer.x - size.width / 2).toInt(),
-                    y = (containerHeight * layer.y - size.height / 2).toInt(),
-                )
+            .graphicsLayer {
+                translationX = containerWidth * layer.x - size.width / 2f
+                translationY = containerHeight * layer.y - size.height / 2f
+                scaleX = layer.scale
+                scaleY = layer.scale
+                rotationZ = layer.rotationDeg
             }
-            .graphicsLayer(
-                scaleX = layer.scale,
-                scaleY = layer.scale,
-                rotationZ = layer.rotationDeg,
-            )
             .then(
                 if (isSelected) Modifier.border(2.dp, Color.Cyan, RoundedCornerShape(4.dp))
                 else Modifier
