@@ -17,11 +17,17 @@ import com.vidcam.app.model.OverlayLayer
 /**
  * Overlay de Media3 que dibuja un [Bitmap] y respeta el canal alfa.
  * La visibilidad se controla con la ventana temporal de la capa.
+ *
+ * La posición se expresa en coordenadas normalizadas (0..1) con origen en la
+ * esquina superior izquierda, igual que en la vista previa. Media3 usa NDC
+ * (-1..1) con el eje Y hacia arriba y ancla el centro de la capa en el punto
+ * indicado.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class LayerBitmapOverlay(
     private val bitmap: Bitmap,
     private val layer: OverlayLayer,
+    private val overlayScale: Float,
 ) : BitmapOverlay() {
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap = bitmap
@@ -32,9 +38,14 @@ class LayerBitmapOverlay(
         val visible = presentationTimeUs in startUs..endUs
         return OverlaySettings.Builder()
             .setAlphaScale(if (visible) 1f else 0f)
-            .setScale(layer.scale, layer.scale)
-            .setRotationDegrees(layer.rotationDeg)
-            .setOverlayFrameAnchor(layer.x * 2f - 1f, layer.y * 2f - 1f)
+            .setScale(overlayScale, overlayScale)
+            // Compose rota en sentido horario; Media3 recibe grados antihorarios.
+            .setRotationDegrees(-layer.rotationDeg)
+            .setBackgroundFrameAnchor(
+                layer.x * 2f - 1f,
+                1f - layer.y * 2f,
+            )
+            .setOverlayFrameAnchor(0f, 0f)
             .build()
     }
 }
@@ -43,6 +54,15 @@ class LayerBitmapOverlay(
 object LayerBitmaps {
 
     const val ASSET_SCHEME = "asset://"
+
+    /** Fracción del ancho del vídeo que ocupa un PNG con escala 1. */
+    const val BASE_PNG_WIDTH_FRACTION = 0.35f
+
+    /** Tamaño de texto en píxeles como fracción del ancho del vídeo a escala 1. */
+    const val BASE_TEXT_SIZE_FRACTION = 0.06f
+
+    /** Valor de [OverlayLayer.fontSizeSp] que corresponde a [BASE_TEXT_SIZE_FRACTION]. */
+    const val BASE_TEXT_SIZE_SP = 42f
 
     fun decodePng(context: Context, uriString: String): Bitmap? = try {
         val stream = if (uriString.startsWith(ASSET_SCHEME)) {
@@ -55,10 +75,15 @@ object LayerBitmaps {
         null
     }
 
-    fun renderText(layer: OverlayLayer): Bitmap {
+    /**
+     * Rasteriza el texto en un Bitmap. [textSizePx] es el tamaño de fuente en
+     * píxeles del vídeo de salida, para que la exportación coincida con la
+     * vista previa.
+     */
+    fun renderText(layer: OverlayLayer, textSizePx: Float): Bitmap {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = layer.colorArgb
-            textSize = layer.fontSizeSp * 2f
+            textSize = textSizePx.coerceAtLeast(1f)
             typeface = layer.fontName
                 ?.let { runCatching { Typeface.create(it, Typeface.NORMAL) }.getOrNull() }
                 ?: Typeface.DEFAULT_BOLD
@@ -76,11 +101,35 @@ object LayerBitmaps {
         return bitmap
     }
 
-    fun buildOverlay(context: Context, layer: OverlayLayer): LayerBitmapOverlay? {
-        val bitmap = when (layer.kind) {
-            LayerKind.PNG -> layer.uri?.let { decodePng(context, it) }
-            LayerKind.TEXT -> renderText(layer)
-        } ?: return null
-        return LayerBitmapOverlay(bitmap, layer)
+    /**
+     * Construye el overlay de una capa. [videoWidth] y [videoHeight] son las
+     * dimensiones en píxeles del vídeo de salida; se usan para que el tamaño
+     * relativo coincida con la vista previa.
+     */
+    fun buildOverlay(
+        context: Context,
+        layer: OverlayLayer,
+        videoWidth: Int,
+        videoHeight: Int,
+    ): LayerBitmapOverlay? {
+        val width = videoWidth.coerceAtLeast(1)
+        val height = videoHeight.coerceAtLeast(1)
+        val bitmap: Bitmap
+        val overlayScale: Float
+        when (layer.kind) {
+            LayerKind.PNG -> {
+                bitmap = layer.uri?.let { decodePng(context, it) } ?: return null
+                val targetWidth = width * BASE_PNG_WIDTH_FRACTION * layer.scale
+                overlayScale = (targetWidth / bitmap.width.coerceAtLeast(1))
+                    .coerceIn(0.01f, 20f)
+            }
+            LayerKind.TEXT -> {
+                val textSizePx = minOf(width, height) * BASE_TEXT_SIZE_FRACTION *
+                    (layer.fontSizeSp / BASE_TEXT_SIZE_SP) * layer.scale
+                bitmap = renderText(layer, textSizePx)
+                overlayScale = 1f
+            }
+        }
+        return LayerBitmapOverlay(bitmap, layer, overlayScale)
     }
 }

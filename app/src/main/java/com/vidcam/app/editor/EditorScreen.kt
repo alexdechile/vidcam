@@ -74,7 +74,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -634,7 +633,16 @@ private fun LayerBox(
         }
     }
 
+    // El tamaño base se expresa como fracción del ancho del lienzo y la
+    // exportación usa la misma fracción sobre el ancho del vídeo. La escala
+    // del gesto se aplica luego con graphicsLayer.
+    val basePngWidthPx = containerWidth * LayerBitmaps.BASE_PNG_WIDTH_FRACTION
+    val baseTextSizePx = minOf(containerWidth, containerHeight) *
+        LayerBitmaps.BASE_TEXT_SIZE_FRACTION *
+        (layer.fontSizeSp / LayerBitmaps.BASE_TEXT_SIZE_SP)
+
     Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier
             .defaultMinSize(48.dp, 48.dp)
             .graphicsLayer {
@@ -732,21 +740,31 @@ private fun LayerBox(
                 text = layer.text,
                 color = Color(layer.colorArgb),
                 fontFamily = rememberGoogleFontFamily(layer.fontName),
-                fontSize = (layer.fontSizeSp / 3f).sp,
+                fontSize = with(density) { baseTextSizePx.toSp() },
             )
 
-            bitmap != null -> Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = layer.label,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(120.dp),
-            )
+            bitmap != null -> {
+                val width = with(density) { basePngWidthPx.toDp() }
+                val height = with(density) {
+                    (basePngWidthPx * bitmap.height / bitmap.width.coerceAtLeast(1)).toDp()
+                }
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = layer.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(width, height),
+                )
+            }
 
-            else -> Surface(
-                color = Color.White.copy(alpha = 0.2f),
-                border = BorderStroke(1.dp, Color.White),
-            ) {
-                Text(text = "PNG", color = Color.White, modifier = Modifier.padding(4.dp))
+            else -> {
+                val size = with(density) { basePngWidthPx.toDp() }
+                Surface(
+                    color = Color.White.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, Color.White),
+                    modifier = Modifier.size(size),
+                ) {
+                    Text(text = "PNG", color = Color.White, modifier = Modifier.padding(4.dp))
+                }
             }
         }
     }

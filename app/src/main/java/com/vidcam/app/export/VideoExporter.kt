@@ -1,6 +1,7 @@
 package com.vidcam.app.export
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.Effect
@@ -17,6 +18,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import java.io.File
@@ -54,8 +56,12 @@ class VideoExporter(private val context: Context) {
         val sequences = buildSequences(project)
         val compositionBuilder = Composition.Builder(sequences)
 
+        val (videoWidth, videoHeight) = project.clips.firstOrNull()?.let { clip ->
+            MediaProbe.videoSize(context, Uri.parse(clip.uri))
+        }?.takeIf { it.first > 0 && it.second > 0 } ?: (1080 to 1920)
+
         val overlays: List<TextureOverlay> = project.layers.mapNotNull {
-            LayerBitmaps.buildOverlay(context, it)
+            LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
         }
         if (overlays.isNotEmpty()) {
             val overlayEffect: Effect = OverlayEffect(overlays)
