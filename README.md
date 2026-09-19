@@ -83,6 +83,10 @@ git push origin v1.0.0
   un dedo arrastra, dos dedos escalan y rotan (pellizco), y un toque selecciona
   la capa, que se resalta con un borde de selección. La posición, escala y
   rotación se guardan normalizadas en el modelo y se replican en la exportación.
+- La vista previa dibuja el lienzo con la misma relación de aspecto y el mismo
+  encuadre que el fotograma de salida (el del primer clip, ajustado *fit* dentro
+  del hueco disponible). Así las coordenadas normalizadas de las capas coinciden
+  exactamente entre edición y exportación.
 
 ## Estructura
 

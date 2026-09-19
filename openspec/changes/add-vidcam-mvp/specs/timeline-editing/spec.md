@@ -41,6 +41,10 @@ La aplicación DEBE (MUST) permitir agregar una o más imágenes PNG con transpa
 - **WHEN** el usuario ajusta la duración de una capa PNG
 - **THEN** la capa aparece solo durante el intervalo configurado en la vista previa
 
+#### Scenario: Posición consistente entre edición y exportación
+- **WHEN** el usuario coloca una capa y exporta el vídeo
+- **THEN** la capa aparece en la misma posición relativa del fotograma que en la vista previa, aunque la relación de aspecto del área de vista previa sea distinta a la del vídeo
+
 ### Requirement: Textos con Google Fonts
 La aplicación DEBE (MUST) permitir agregar uno o más textos superpuestos con contenido, tamaño, color y posición editables, y DEBE (MUST) ofrecer una selección de fuentes de Google Fonts descargadas y almacenadas en caché.
 

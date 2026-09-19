@@ -83,6 +83,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.vidcam.app.capture.CameraRecorder
+import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -98,8 +99,10 @@ import com.vidcam.app.ui.rememberGoogleFontFamily
 import com.vidcam.app.ui.rememberGoogleFontsAvailable
 import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDuration
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.defaultMinSize
@@ -582,33 +585,63 @@ private fun TimelinePreview(
         }
     }
 
-    BoxWithConstraints(modifier) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = videoPlayer
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+    // El lienzo de la vista previa debe tener la misma relación de aspecto que
+    // el fotograma que exporta Media3 (el del primer clip). Si no, las capas se
+    // ven desplazadas al exportar porque la exportación no recorta el vídeo.
+    val firstClipUri = project.clips.firstOrNull()?.uri
+    var frameSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    LaunchedEffect(firstClipUri) {
+        frameSize = withContext(Dispatchers.IO) {
+            FrameGeometry.frameSize(context, project)
+        }
+    }
+
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
-        val containerWidth = with(density) { maxWidth.toPx() }
-        val containerHeight = with(density) { maxHeight.toPx() }
-        Box(modifier = Modifier.fillMaxSize()) {
-            project.layers
-                .filter { positionMs in it.startMs..it.endMs }
-                .forEach { layer ->
-                    LayerBox(
-                        layer = layer,
-                        containerWidth = containerWidth,
-                        containerHeight = containerHeight,
-                        onLayerChange = onLayerChange,
-                        isSelected = layer.id == selectedLayerId,
-                        onSelect = { selectedLayerId = layer.id },
-                    )
-                }
+        val availableWidth = with(density) { maxWidth.toPx() }
+        val availableHeight = with(density) { maxHeight.toPx() }
+        val (containerWidth, containerHeight) = frameSize?.let { (width, height) ->
+            FrameGeometry.fit(
+                frameWidth = width.toFloat(),
+                frameHeight = height.toFloat(),
+                maxWidth = availableWidth,
+                maxHeight = availableHeight,
+            )
+        } ?: (availableWidth to availableHeight)
+
+        Box(
+            modifier = Modifier.size(
+                width = with(density) { containerWidth.toDp() },
+                height = with(density) { containerHeight.toDp() },
+            ),
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = videoPlayer
+                        useController = false
+                        // FIT y no ZOOM: el vídeo se muestra completo dentro del
+                        // fotograma, igual que lo escala Media3 al exportar.
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                project.layers
+                    .filter { positionMs in it.startMs..it.endMs }
+                    .forEach { layer ->
+                        LayerBox(
+                            layer = layer,
+                            containerWidth = containerWidth,
+                            containerHeight = containerHeight,
+                            onLayerChange = onLayerChange,
+                            isSelected = layer.id == selectedLayerId,
+                            onSelect = { selectedLayerId = layer.id },
+                        )
+                    }
+            }
         }
     }
 }
