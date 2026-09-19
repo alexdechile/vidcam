@@ -64,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,8 +72,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -85,6 +88,7 @@ import androidx.media3.ui.PlayerView
 import com.vidcam.app.capture.CameraRecorder
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
+import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.MusicTrack
@@ -92,6 +96,8 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.hitTestLayers
+import com.vidcam.app.model.resolvedAt
 import com.vidcam.app.ui.BUILT_IN_STICKERS
 import com.vidcam.app.ui.CameraPreview
 import com.vidcam.app.ui.GOOGLE_FONT_NAMES
@@ -99,6 +105,7 @@ import com.vidcam.app.ui.rememberGoogleFontFamily
 import com.vidcam.app.ui.rememberGoogleFontsAvailable
 import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDuration
+import com.vidcam.app.util.formatShortTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -106,6 +113,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import java.io.File
 import kotlin.math.atan2
@@ -121,6 +129,7 @@ fun EditorScreen(
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
+    val motionRecording by viewModel.motionRecording.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -211,7 +220,9 @@ fun EditorScreen(
                 } else {
                     TimelinePreview(
                         project = project,
-                        onLayerChange = viewModel::updateLayer,
+                        motionRecording = motionRecording,
+                        onLayerGesture = viewModel::applyLayerGesture,
+                        onMotionAutoStop = { viewModel.setMotionRecording(false) },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -237,6 +248,8 @@ fun EditorScreen(
                 onAddText = { showTextDialog = true },
                 onAddSticker = { showStickerDialog = true },
                 onMusic = { showMusicSheet = true },
+                motionRecording = motionRecording,
+                onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
                 viewModel = viewModel,
             )
 
@@ -336,6 +349,8 @@ private fun ControlsSection(
     onAddText: () -> Unit,
     onAddSticker: () -> Unit,
     onMusic: () -> Unit,
+    motionRecording: Boolean,
+    onToggleMotion: () -> Unit,
     viewModel: EditorViewModel,
 ) {
     Column(
@@ -374,6 +389,32 @@ private fun ControlsSection(
             OutlinedButton(onClick = onAddSticker) { Text("Sticker") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onMusic) { Text("Música") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onToggleMotion,
+                enabled = project.layers.isNotEmpty(),
+            ) {
+                Text(if (motionRecording) "Detener grabación" else "Grabar movimiento")
+            }
+        }
+
+        if (motionRecording) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(Color.Red, CircleShape),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Grabando movimiento: mueve o pellizca una capa",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
 
         Row(
@@ -440,18 +481,51 @@ private fun TimelineSection(project: Project, viewModel: EditorViewModel) {
                 Spacer(Modifier.height(8.dp))
                 Text(text = "Capas", style = MaterialTheme.typography.labelLarge)
                 project.layers.forEach { layer ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (layer.kind == LayerKind.TEXT) layer.text else layer.label,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = "${formatDuration(layer.startMs)}–${formatDuration(layer.endMs)}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        IconButton(onClick = { viewModel.removeLayer(layer.id) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Eliminar capa")
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (layer.kind == LayerKind.TEXT) layer.text else layer.label,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                            )
+                            if (layer.keyframes.isNotEmpty()) {
+                                Text(
+                                    text = "${layer.keyframes.size} claves",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                text = "${formatDuration(layer.startMs)}–${formatDuration(layer.endMs)}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            IconButton(onClick = { viewModel.removeLayer(layer.id) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Eliminar capa")
+                            }
+                        }
+                        if (layer.keyframes.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                layer.keyframes.forEach { keyframe ->
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.removeLayerKeyframe(layer.id, keyframe.timeMs)
+                                        },
+                                    ) {
+                                        Text(
+                                            text = formatShortTime(keyframe.timeMs),
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+                                TextButton(onClick = { viewModel.clearLayerAnimation(layer.id) }) {
+                                    Text(
+                                        text = "Borrar animación",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -491,7 +565,9 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
 @Composable
 private fun TimelinePreview(
     project: Project,
-    onLayerChange: (OverlayLayer) -> Unit,
+    motionRecording: Boolean,
+    onLayerGesture: (OverlayLayer, Long, Boolean) -> Unit,
+    onMotionAutoStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -564,8 +640,20 @@ private fun TimelinePreview(
         }
     }
 
+    val recordingNow by rememberUpdatedState(motionRecording)
+    val onMotionAutoStopNow by rememberUpdatedState(onMotionAutoStop)
+
     LaunchedEffect(videoPlayer) {
+        var previousPositionMs = 0L
+        var reachedEnd = false
         while (true) {
+            // Sincronizado con el fotograma mientras hay reproducción; en pausa
+            // basta un muestreo lento.
+            if (videoPlayer.isPlaying) {
+                withFrameNanos { }
+            } else {
+                delay(100L)
+            }
             val clips = clipsState.value
             val index = videoPlayer.currentMediaItemIndex
             val base = if (index in clips.indices) {
@@ -573,9 +661,27 @@ private fun TimelinePreview(
             } else {
                 0L
             }
-            positionMs = base + videoPlayer.currentPosition
-            delay(100L)
+            val total = clips.sumOf { it.trimmedDurationMs }
+            val next = base + videoPlayer.currentPosition
+            if (recordingNow) {
+                // Solo se considera "pasada terminada" después de haber visto el
+                // final, para no confundir el seek inicial a 0 con el reinicio
+                // del bucle.
+                if (total > 0L && next >= total - 100L) reachedEnd = true
+                if (reachedEnd && next < previousPositionMs) {
+                    reachedEnd = false
+                    onMotionAutoStopNow()
+                }
+            } else {
+                reachedEnd = false
+            }
+            previousPositionMs = next
+            positionMs = next
         }
+    }
+
+    LaunchedEffect(motionRecording) {
+        if (motionRecording) videoPlayer.seekTo(0L)
     }
 
     DisposableEffect(Unit) {
@@ -610,6 +716,17 @@ private fun TimelinePreview(
             )
         } ?: (availableWidth to availableHeight)
 
+        val resolvedLayers = project.layers
+            .filter { positionMs in it.startMs..it.endMs }
+            .map { it.resolvedAt(positionMs) }
+        val currentLayers by rememberUpdatedState(resolvedLayers)
+        val currentPositionMs by rememberUpdatedState(positionMs)
+        val currentContainerWidth by rememberUpdatedState(containerWidth)
+        val currentContainerHeight by rememberUpdatedState(containerHeight)
+        val currentOnGesture by rememberUpdatedState(onLayerGesture)
+        // Tamaño medido de cada capa, en píxeles y sin escala, para el hit-test.
+        val measuredSizes = remember { mutableMapOf<String, IntSize>() }
+
         Box(
             modifier = Modifier.size(
                 width = with(density) { containerWidth.toDp() },
@@ -628,19 +745,154 @@ private fun TimelinePreview(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(modifier = Modifier.fillMaxSize()) {
-                project.layers
-                    .filter { positionMs in it.startMs..it.endMs }
-                    .forEach { layer ->
-                        LayerBox(
-                            layer = layer,
-                            containerWidth = containerWidth,
-                            containerHeight = containerHeight,
-                            onLayerChange = onLayerChange,
-                            isSelected = layer.id == selectedLayerId,
-                            onSelect = { selectedLayerId = layer.id },
-                        )
-                    }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Una sola superficie de gestos sobre todo el lienzo: así el
+                    // pellizco funciona aunque un dedo caiga fuera de la capa.
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+
+                                val layers = currentLayers
+                                val targets = layers.mapNotNull { resolved ->
+                                    measuredSizes[resolved.id]?.let { size ->
+                                        LayerHitTarget(
+                                            layer = resolved,
+                                            widthPx = size.width.toFloat(),
+                                            heightPx = size.height.toFloat(),
+                                        )
+                                    }
+                                }
+                                val hit = hitTestLayers(
+                                    targets = targets,
+                                    pointX = down.position.x,
+                                    pointY = down.position.y,
+                                    containerWidth = currentContainerWidth,
+                                    containerHeight = currentContainerHeight,
+                                )
+                                // Si el toque no cae en ninguna capa se mantiene la
+                                // selección, para poder pellizcar fuera de ella.
+                                val targetLayer = hit
+                                    ?: selectedLayerId?.let { id -> layers.firstOrNull { it.id == id } }
+                                if (targetLayer == null) continue
+                                selectedLayerId = targetLayer.id
+
+                                var working: OverlayLayer? = null
+                                var moved = false
+                                var emitted = false
+                                var lastPointerCount = 0
+                                var lastPosition = down.position
+                                var lastDistance = 0f
+                                var lastAngle = 0f
+
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val changes = event.changes.filter { it.pressed }
+
+                                    if (changes.size != lastPointerCount) {
+                                        lastPointerCount = changes.size
+                                        lastPosition = changes.firstOrNull()?.position ?: down.position
+                                        lastDistance = 0f
+                                        lastAngle = 0f
+                                    }
+
+                                    when {
+                                        changes.size >= 2 -> {
+                                            val p1 = changes[0].position
+                                            val p2 = changes[1].position
+                                            val distance = (p1 - p2).getDistance()
+                                            val angle = atan2(p2.y - p1.y, p2.x - p1.x)
+                                            if (lastDistance > 0f) {
+                                                val base = working
+                                                    ?: currentLayers.firstOrNull {
+                                                        it.id == targetLayer.id
+                                                    }
+                                                    ?: targetLayer
+                                                val next = base.copy(
+                                                    scale = (base.scale * (distance / lastDistance))
+                                                        .coerceIn(0.2f, 4f),
+                                                    rotationDeg = base.rotationDeg +
+                                                        Math.toDegrees(
+                                                            (angle - lastAngle).toDouble(),
+                                                        ).toFloat(),
+                                                )
+                                                working = next
+                                                moved = true
+                                                currentOnGesture(next, currentPositionMs, !emitted)
+                                                emitted = true
+                                            }
+                                            lastDistance = distance
+                                            lastAngle = angle
+                                        }
+
+                                        changes.size == 1 -> {
+                                            val change = changes.first()
+                                            if (!moved &&
+                                                (change.position - down.position).getDistance() >
+                                                viewConfiguration.touchSlop
+                                            ) {
+                                                moved = true
+                                            }
+                                            if (moved) {
+                                                val delta = change.position - lastPosition
+                                                lastPosition = change.position
+                                                val base = working
+                                                    ?: currentLayers.firstOrNull {
+                                                        it.id == targetLayer.id
+                                                    }
+                                                    ?: targetLayer
+                                                val next = base.copy(
+                                                    x = (base.x + delta.x / currentContainerWidth)
+                                                        .coerceIn(0f, 1f),
+                                                    y = (base.y + delta.y / currentContainerHeight)
+                                                        .coerceIn(0f, 1f),
+                                                )
+                                                working = next
+                                                currentOnGesture(next, currentPositionMs, !emitted)
+                                                emitted = true
+                                            }
+                                        }
+                                    }
+
+                                    changes.forEach { it.consume() }
+                                } while (event.changes.any { it.pressed })
+
+                                // Última muestra sin decimación, para no perder el
+                                // punto donde el dedo terminó el gesto.
+                                working?.let { currentOnGesture(it, currentPositionMs, true) }
+                            }
+                        }
+                    },
+            ) {
+                resolvedLayers.forEach { layer ->
+                    LayerBox(
+                        layer = layer,
+                        containerWidth = containerWidth,
+                        containerHeight = containerHeight,
+                        isSelected = layer.id == selectedLayerId,
+                        onMeasured = { measuredSizes[layer.id] = it },
+                    )
+                }
+            }
+
+            if (motionRecording) {
+                Surface(
+                    color = Color.Red.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                ) {
+                    Text(
+                        text = "REC movimiento",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
     }
@@ -651,13 +903,11 @@ private fun LayerBox(
     layer: OverlayLayer,
     containerWidth: Float,
     containerHeight: Float,
-    onLayerChange: (OverlayLayer) -> Unit,
-    isSelected: Boolean = false,
-    onSelect: () -> Unit = {},
+    isSelected: Boolean,
+    onMeasured: (IntSize) -> Unit,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val currentLayer by rememberUpdatedState(layer)
     val bitmap = remember(layer.kind, layer.uri) {
         if (layer.kind == LayerKind.PNG) {
             layer.uri?.let { LayerBitmaps.decodePng(context, it) }
@@ -668,7 +918,7 @@ private fun LayerBox(
 
     // El tamaño base se expresa como fracción del ancho del lienzo y la
     // exportación usa la misma fracción sobre el ancho del vídeo. La escala
-    // del gesto se aplica luego con graphicsLayer.
+    // resuelta de la animación se aplica luego con graphicsLayer.
     val basePngWidthPx = containerWidth * LayerBitmaps.BASE_PNG_WIDTH_FRACTION
     val baseTextSizePx = minOf(containerWidth, containerHeight) *
         LayerBitmaps.BASE_TEXT_SIZE_FRACTION *
@@ -678,6 +928,7 @@ private fun LayerBox(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .defaultMinSize(48.dp, 48.dp)
+            .onGloballyPositioned { onMeasured(it.size) }
             .graphicsLayer {
                 translationX = containerWidth * layer.x - size.width / 2f
                 translationY = containerHeight * layer.y - size.height / 2f
@@ -688,85 +939,7 @@ private fun LayerBox(
             .then(
                 if (isSelected) Modifier.border(2.dp, Color.Cyan, RoundedCornerShape(4.dp))
                 else Modifier
-            )
-            .pointerInput(layer.id) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val down = awaitFirstDown()
-                        down.consume()
-
-                        var dragging = false
-                        var lastPointerCount = 0
-                        var lastPosition = down.position
-                        var lastDistance = 0f
-                        var lastAngle = 0f
-
-                        do {
-                            val event = awaitPointerEvent()
-                            val changes = event.changes.filter { it.pressed }
-
-                            if (changes.size != lastPointerCount) {
-                                lastPointerCount = changes.size
-                                lastPosition = changes.firstOrNull()?.position ?: down.position
-                                lastDistance = 0f
-                                lastAngle = 0f
-                            }
-
-                            when (changes.size) {
-                                1 -> {
-                                    val change = changes.first()
-                                    val pan = change.position - down.position
-
-                                    if (pan.getDistance() > viewConfiguration.touchSlop) {
-                                        dragging = true
-                                        val delta = change.position - lastPosition
-                                        lastPosition = change.position
-                                        val current = currentLayer
-                                        onLayerChange(
-                                            current.copy(
-                                                x = (current.x + delta.x / containerWidth)
-                                                    .coerceIn(0f, 1f),
-                                                y = (current.y + delta.y / containerHeight)
-                                                    .coerceIn(0f, 1f),
-                                            ),
-                                        )
-                                    }
-                                }
-                                2 -> {
-                                    dragging = true
-                                    val p1 = changes[0].position
-                                    val p2 = changes[1].position
-                                    val distance = (p1 - p2).getDistance()
-                                    val angle = atan2(p2.y - p1.y, p2.x - p1.x)
-
-                                    if (lastDistance > 0f) {
-                                        val zoomFactor = distance / lastDistance
-                                        val rotationDelta = angle - lastAngle
-                                        val current = currentLayer
-                                        onLayerChange(
-                                            current.copy(
-                                                scale = (current.scale * zoomFactor)
-                                                    .coerceIn(0.2f, 4f),
-                                                rotationDeg = current.rotationDeg +
-                                                    Math.toDegrees(rotationDelta.toDouble()).toFloat(),
-                                            ),
-                                        )
-                                    }
-
-                                    lastDistance = distance
-                                    lastAngle = angle
-                                }
-                            }
-
-                            changes.forEach { it.consume() }
-                        } while (event.changes.any { it.pressed })
-
-                        if (!dragging) {
-                            onSelect()
-                        }
-                    }
-                }
-            },
+            ),
     ) {
         when {
             layer.kind == LayerKind.TEXT -> Text(

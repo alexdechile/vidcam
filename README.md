@@ -2,12 +2,13 @@
 
 Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos:
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
-capas PNG transparentes y textos con Google Fonts arrastrables, escalables y
-rotables en el lienzo, con exportación a MP4 (H.264/AAC) con guardado en galería
-y hoja de compartir.
+capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
+rotables y animables con grabación de movimiento en el lienzo, con exportación a
+MP4 (H.264/AAC) con guardado en galería y hoja de compartir.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
-`openspec/changes/add-vidcam-mvp/`.
+`openspec/changes/add-vidcam-mvp/` y
+`openspec/changes/add-layer-motion-recording/`.
 
 ## Requisitos
 
@@ -80,9 +81,19 @@ git push origin v1.0.0
   abre el editor en modo solo importación: oculta los controles de grabación y
   ofrece solicitar el permiso o abrir los ajustes.
 - Las capas (PNG con alfa y textos) se manipulan directamente en la vista previa:
-  un dedo arrastra, dos dedos escalan y rotan (pellizco), y un toque selecciona
-  la capa, que se resalta con un borde de selección. La posición, escala y
-  rotación se guardan normalizadas en el modelo y se replican en la exportación.
+  los gestos se reconocen sobre todo el lienzo, no solo sobre la capa. Un dedo
+  arrastra, dos dedos escalan y rotan (pellizco) aunque un dedo caiga fuera de
+  la capa, y un toque selecciona la capa bajo el dedo, que se resalta con un
+  borde de selección. La posición, escala y rotación se guardan normalizadas en
+  el modelo y se replican en la exportación.
+- **Grabación de movimiento**: con el botón "Grabar movimiento" el vídeo se
+  reproduce desde el inicio y los gestos que el usuario aplica sobre una capa se
+  registran como fotogramas clave en el tiempo en que ocurren. La vista previa
+  reproduce la animación sincronizada con el vídeo y la exportación la evalúa en
+  cada fotograma, así que el MP4 conserva la misma trayectoria, escala y
+  rotación. La línea de tiempo muestra las marcas de cada fotograma clave y
+  permite borrar una marca o toda la animación de una capa (que entonces vuelve
+  a quedar fija).
 - La vista previa dibuja el lienzo con la misma relación de aspecto y el mismo
   encuadre que el fotograma de salida (el del primer clip, ajustado *fit* dentro
   del hueco disponible). Así las coordenadas normalizadas de las capas coinciden

@@ -8,3 +8,7 @@ fun formatDuration(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format(Locale.US, "%d:%02d", minutes, seconds)
 }
+
+/** Tiempo corto con décimas, para marcas de fotogramas clave. */
+fun formatShortTime(ms: Long): String =
+    String.format(Locale.US, "%.1fs", ms.coerceAtLeast(0L) / 1000f)

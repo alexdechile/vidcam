@@ -19,4 +19,10 @@ class TimeUtilsTest {
     fun clampsNegativeValues() {
         assertEquals("0:00", formatDuration(-1_000))
     }
+
+    @Test
+    fun formatsShortTimeWithTenths() {
+        assertEquals("1.5s", formatShortTime(1_500))
+        assertEquals("0.0s", formatShortTime(-100))
+    }
 }

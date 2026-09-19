@@ -1,7 +1,10 @@
 package com.vidcam.app
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
@@ -16,11 +19,10 @@ class EditorScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    @Test
-    fun showsImportFlowWhenCameraPermissionMissing() {
-        val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = EditorViewModel(application)
+    private fun viewModel(): EditorViewModel =
+        EditorViewModel(ApplicationProvider.getApplicationContext<Application>())
 
+    private fun setEditorContent(viewModel: EditorViewModel) {
         composeRule.setContent {
             VidCamTheme {
                 EditorScreen(
@@ -30,10 +32,33 @@ class EditorScreenTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun showsImportFlowWhenCameraPermissionMissing() {
+        val viewModel = viewModel()
+        setEditorContent(viewModel)
 
         composeRule.onNodeWithText("Importar").assertIsDisplayed()
         composeRule.onNodeWithText("Música").assertIsDisplayed()
         composeRule.onNodeWithText("Sin acceso a la cámara").assertIsDisplayed()
         composeRule.onNodeWithText("Grabar").assertDoesNotExist()
+    }
+
+    @Test
+    fun motionRecordingRequiresALayer() {
+        val viewModel = viewModel()
+        setEditorContent(viewModel)
+
+        composeRule.onNodeWithText("Grabar movimiento")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+
+        composeRule.runOnIdle {
+            viewModel.addPngLayer(Uri.parse("asset://stickers/star.png"))
+        }
+
+        composeRule.onNodeWithText("Grabar movimiento").assertIsEnabled()
+        composeRule.onNodeWithText("REC movimiento").assertDoesNotExist()
     }
 }

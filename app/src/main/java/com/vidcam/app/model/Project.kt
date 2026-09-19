@@ -15,6 +15,19 @@ data class VideoClip(
 
 enum class LayerKind { PNG, TEXT }
 
+/**
+ * Fotograma clave del transform de una capa. El tiempo es absoluto dentro de la
+ * línea de tiempo del proyecto (no relativo a la ventana de la capa), para que
+ * vista previa y exportación coincidan.
+ */
+data class LayerKeyframe(
+    val timeMs: Long,
+    val x: Float,
+    val y: Float,
+    val scale: Float,
+    val rotationDeg: Float,
+)
+
 data class OverlayLayer(
     val id: String,
     val kind: LayerKind,
@@ -30,6 +43,11 @@ data class OverlayLayer(
     val fontName: String? = null,
     val colorArgb: Int = 0xFFFFFFFF.toInt(),
     val fontSizeSp: Float = 42f,
+    /**
+     * Animación de la capa. Vacío significa transform fijo, como antes de que
+     * existiera la grabación de movimiento.
+     */
+    val keyframes: List<LayerKeyframe> = emptyList(),
 )
 
 data class MusicTrack(

@@ -9,6 +9,7 @@ import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
+import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.MusicTrack
@@ -16,6 +17,11 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.clearAnimation
+import com.vidcam.app.model.removeKeyframeAt
+import com.vidcam.app.model.seedKeyframesAt
+import com.vidcam.app.model.shouldSampleKeyframe
+import com.vidcam.app.model.upsertKeyframe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +46,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _lastExport = MutableStateFlow<File?>(null)
     val lastExport: StateFlow<File?> = _lastExport.asStateFlow()
+
+    private val _motionRecording = MutableStateFlow(false)
+    val motionRecording: StateFlow<Boolean> = _motionRecording.asStateFlow()
 
     private val musicRepository = MusicRepository(application)
     private val exporter = VideoExporter(application)
@@ -179,6 +188,91 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun removeLayer(id: String) =
         update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }
+
+    // --- Animación de capas -------------------------------------------------
+
+    fun setMotionRecording(recording: Boolean) {
+        _motionRecording.value = recording
+    }
+
+    /**
+     * Aplica el resultado de un gesto sobre una capa. Si la grabación está activa
+     * o la capa ya tiene animación, el cambio se guarda como fotograma clave en
+     * [atMs]; si no, actualiza el transform fijo. Con [force] se salta la
+     * decimación para no perder la última muestra de un gesto.
+     *
+     * La primera muestra de una capa sin animación solo fija el punto de partida
+     * en el tiempo actual: así la capa se mantiene quieta hasta que empieza el
+     * gesto, en vez de derivar desde el inicio de la línea de tiempo. El
+     * movimiento se registra desde la muestra siguiente (unos milisegundos
+     * después).
+     */
+    fun applyLayerGesture(layer: OverlayLayer, atMs: Long, force: Boolean = false) =
+        update { project ->
+            val target = project.layers.firstOrNull { it.id == layer.id }
+                ?: return@update project
+            if (!_motionRecording.value && target.keyframes.isEmpty()) {
+                return@update project.copy(
+                    layers = project.layers.map {
+                        if (it.id != layer.id) {
+                            it
+                        } else {
+                            it.copy(
+                                x = layer.x,
+                                y = layer.y,
+                                scale = layer.scale,
+                                rotationDeg = layer.rotationDeg,
+                            )
+                        }
+                    },
+                )
+            }
+
+            if (target.keyframes.isEmpty()) {
+                val seeded = target.seedKeyframesAt(atMs)
+                return@update project.copy(
+                    layers = project.layers.map { if (it.id == layer.id) seeded else it },
+                )
+            }
+
+            val candidate = LayerKeyframe(
+                timeMs = atMs,
+                x = layer.x,
+                y = layer.y,
+                scale = layer.scale,
+                rotationDeg = layer.rotationDeg,
+            )
+            val previous = target.keyframes.lastOrNull { it.timeMs <= atMs }
+            val updated = if (force || shouldSampleKeyframe(previous, candidate)) {
+                target.upsertKeyframe(candidate).copy(
+                    x = layer.x,
+                    y = layer.y,
+                    scale = layer.scale,
+                    rotationDeg = layer.rotationDeg,
+                )
+            } else {
+                target
+            }
+            project.copy(
+                layers = project.layers.map { if (it.id == layer.id) updated else it },
+            )
+        }
+
+    fun removeLayerKeyframe(id: String, timeMs: Long) = update { project ->
+        project.copy(
+            layers = project.layers.map { layer ->
+                if (layer.id == id) layer.removeKeyframeAt(timeMs) else layer
+            },
+        )
+    }
+
+    fun clearLayerAnimation(id: String) = update { project ->
+        project.copy(
+            layers = project.layers.map { layer ->
+                if (layer.id == id) layer.clearAnimation() else layer
+            },
+        )
+    }
 
     // --- Exportación -------------------------------------------------------
 
