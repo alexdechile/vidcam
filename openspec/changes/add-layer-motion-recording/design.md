@@ -47,9 +47,10 @@ el gesto de dos dedos sea fiable con capas pequeñas. Alternativa descartada:
 mantener el gesto por capa y "agrandar" el área táctil; no resuelve el caso de
 separar mucho los dedos y complica la selección.
 
-**Ubicación de la lógica**: la resolución de capa y el cálculo del transform se
-extraen a una función pura (`LayerGestureController` / helpers en un archivo sin
-dependencias de Android) para poder probarla con tests unitarios.
+**Ubicación de la lógica**: la resolución de capa bajo un punto y el resto de
+cálculos puros viven en `model/LayerAnimation.kt` (sin dependencias de Android)
+para poder probarlos con tests unitarios; la superficie de puntero y su enrutado
+quedan en `EditorScreen.kt`, porque dependen del sistema de gestos de Compose.
 
 ### 2. Modelo: keyframes opcionales por capa
 
@@ -84,11 +85,15 @@ En modo grabación, cada evento de puntero con transform efectivo genera una cla
 en el tiempo actual (posición del cabezal, con el mismo mapeo clip+offset que ya
 usa la vista previa). Para evitar miles de claves:
 
-- Se descarta un muestreo si no supera un umbral mínimo de movimiento o si
-  transcurrieron menos de ~40 ms desde el anterior.
-- Al empezar a grabar sobre una capa sin animación se siembra una clave en t=0
-  (o en el inicio de la ventana de la capa) con su transform actual, para que la
-  animación arranque desde donde estaba.
+- Se descarta un muestreo si transcurrieron menos de ~40 ms desde el anterior,
+  salvo que el transform se haya movido lo suficiente como para no perder un
+  gesto rápido (`shouldSampleKeyframe`).
+- La primera muestra de una capa sin animación solo siembra una clave con su
+  transform actual **en el tiempo del gesto**, no en t=0: así la capa se mantiene
+  quieta hasta que el usuario la toca, en vez de derivar lentamente desde el
+  inicio cuando el primer toque llega tarde. El movimiento se registra desde la
+  muestra siguiente (milisegundos después); la última muestra de cada gesto se
+  guarda siempre sin decimación.
 - Los tiempos se registran en la línea de tiempo global (no relativos a la capa)
   para que coincidan con la exportación.
 
@@ -109,9 +114,9 @@ es suficiente para la precisión visual de la vista previa.
 `LayerBitmapOverlay.getOverlaySettings(presentationTimeUs)` resuelve
 `resolvedAt(presentationTimeUs / 1000)` y de ahí deriva anclaje, rotación y
 escala. `LayerBitmaps.buildOverlay` deja de calcular la escala una sola vez:
-entrega el bitmap base (PNG decodificado o texto rasterizado a tamaño base) y el
-overlay recalcula el factor de escala en cada fotograma a partir del transform
-animado.
+entrega el bitmap base (PNG decodificado, o texto rasterizado a 2× y reducido con
+`TEXT_RASTER_FACTOR` para que al agrandarlo no se vea borroso) y el overlay
+recalcula el factor de escala en cada fotograma a partir del transform animado.
 
 **Coste**: `OverlaySettings` es inmutable, así que se construye por fotograma.
 Es una asignación pequeña frente al coste de dibujar el bitmap; se acepta. Si
@@ -121,13 +126,14 @@ posterior, no bloquea).
 
 ### 6. Modo de edición distinto
 
-Se añade un estado de UI `motionRecording` (y un `motionMode` para mostrar la
-línea de tiempo de keyframes) en `EditorScreen`, con un botón "Grabar
-movimiento" junto a los controles existentes. Las acciones de borrar animación y
-borrar clave viven en el `EditorViewModel` (`updateLayerKeyframes`). El modo no
-bloquea la edición normal: al salir de grabación el usuario sigue pudiendo mover
-capas, y esos ajustes actualizan la clave del tiempo actual si la capa ya está
-animada.
+Se añade un estado de UI `motionRecording` en `EditorScreen`, con un botón
+"Grabar movimiento" junto a los controles existentes, un indicador rojo sobre el
+lienzo y marcas de clave en la línea de tiempo. Al activarlo, la vista previa
+vuelve al inicio para grabar una pasada completa. Las acciones de borrar
+animación y borrar clave viven en el `EditorViewModel`
+(`clearLayerAnimation`, `removeLayerKeyframe`). El modo no bloquea la edición
+normal: al salir de grabación el usuario sigue pudiendo mover capas, y esos
+ajustes actualizan la clave del tiempo actual si la capa ya está animada.
 
 ## Risks / Trade-offs
 
@@ -141,9 +147,9 @@ animada.
   por fotograma mientras el reproductor está en marcha; en pausa no hay bucle.
 - **[Cambio de posición del cabezal por el bucle REPEAT_MODE_ALL]** → Al grabar,
   si el vídeo se repite la posición vuelve a 0 y las claves nuevas quedarían
-  fuera de orden; se mitiga limitando la grabación a una pasada (indicador y
-  auto-stop al llegar al final) o descartando muestras cuyo tiempo sea anterior
-  a la última clave.
+  fuera de orden; se mitiga con auto-stop de una sola pasada: la detección del
+  reinicio solo se arma después de haber visto el final, para que el `seekTo(0)`
+  inicial no detenga la grabación.
 - **[Regresión en los gestos de una capa]** → Tests unitarios de resolución de
   capa y de transform; los tests instrumentados existentes deben seguir pasando.
 

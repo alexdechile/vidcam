@@ -37,5 +37,5 @@
 ## 6. Verificación y documentación
 
 - [x] 6.1 Extender los tests instrumentados (`EditorScreenTest`) para cubrir el modo de grabación y la reproducción animada sin cámara
-- [ ] 6.2 Ejecutar la verificación en CI (`lint test assembleDebug assembleDebugAndroidTest`) y corregir lo que falle
+- [x] 6.2 Ejecutar la verificación en CI (`lint test assembleDebug assembleDebugAndroidTest`) y corregir lo que falle
 - [x] 6.3 Actualizar `README.md` (sección de comportamiento) con el pellizco corregido y la grabación de movimiento, y sincronizar las specs OpenSpec al archivar
