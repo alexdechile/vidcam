@@ -141,6 +141,7 @@ fun EditorScreen(
     var showMusicSheet by remember { mutableStateOf(false) }
     var showTextDialog by remember { mutableStateOf(false) }
     var showStickerDialog by remember { mutableStateOf(false) }
+    var showNewProjectDialog by remember { mutableStateOf(false) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
 
     DisposableEffect(lifecycleOwner, canRecord) {
@@ -183,6 +184,21 @@ fun EditorScreen(
             TopAppBar(
                 title = { Text("VidCam") },
                 actions = {
+                    TextButton(
+                        onClick = {
+                            val hasWork = project.clips.isNotEmpty() ||
+                                project.layers.isNotEmpty() ||
+                                project.music != null
+                            if (hasWork) {
+                                showNewProjectDialog = true
+                            } else {
+                                viewModel.newProject()
+                            }
+                        },
+                        enabled = !exporting,
+                    ) {
+                        Text("Nuevo")
+                    }
                     if (lastExport != null) {
                         IconButton(onClick = viewModel::shareLastExport) {
                             Icon(Icons.Default.Share, contentDescription = "Compartir")
@@ -288,6 +304,34 @@ fun EditorScreen(
             onConfirm = { updated ->
                 viewModel.updateLayer(updated)
                 editingLayer = null
+            },
+        )
+    }
+
+    if (showNewProjectDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewProjectDialog = false },
+            title = { Text("Nuevo proyecto") },
+            text = {
+                Text(
+                    "Se descartará el trabajo actual y no se guardará. " +
+                        "¿Quieres empezar de cero?",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.newProject()
+                        showNewProjectDialog = false
+                    },
+                ) {
+                    Text("Descartar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewProjectDialog = false }) {
+                    Text("Cancelar")
+                }
             },
         )
     }

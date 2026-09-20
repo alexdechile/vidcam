@@ -1,7 +1,9 @@
 package com.vidcam.app.export
 
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -46,5 +48,23 @@ object GallerySaver {
             context.contentResolver.update(uri, clear, null, null)
         }
         return uri
+    }
+
+    /**
+     * Abre el vídeo ya guardado en el visor de la galería del dispositivo.
+     * Devuelve `true` si alguna aplicación pudo manejarlo.
+     */
+    fun openInGallery(context: Context, uri: Uri): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "video/mp4")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        }
     }
 }

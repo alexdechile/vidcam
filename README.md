@@ -98,6 +98,14 @@ git push origin v1.0.0
   encuadre que el fotograma de salida (el del primer clip, ajustado *fit* dentro
   del hueco disponible). Así las coordenadas normalizadas de las capas coinciden
   exactamente entre edición y exportación.
+- **Nuevo proyecto**: el botón "Nuevo" de la barra superior descarta el trabajo
+  actual y deja el editor vacío. Como todavía no hay persistencia, no guarda
+  nada antes de limpiar, así que pide confirmación cuando hay clips, capas o
+  música; si el proyecto ya está vacío, no pregunta nada.
+- **Apertura en la galería**: al terminar la exportación, además de guardar el
+  MP4 en la galería, la app lo abre en el visor de vídeo del sistema mediante
+  `ACTION_VIEW`. Si ninguna aplicación puede manejarlo, el vídeo queda guardado
+  igualmente y solo se muestra el aviso.
 
 ## Estructura
 

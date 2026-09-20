@@ -64,6 +64,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         _project.value = block(_project.value)
     }
 
+    // --- Proyecto ----------------------------------------------------------
+
+    /**
+     * Descarta el trabajo actual y empieza un proyecto vacío. Todavía no hay
+     * persistencia, así que no se guarda nada antes de limpiar.
+     */
+    fun newProject() {
+        if (_exporting.value) return
+        _motionRecording.value = false
+        _lastExport.value = null
+        _project.value = Project()
+    }
+
     // --- Clips -------------------------------------------------------------
 
     fun addRecordedClip(file: File) {
@@ -295,7 +308,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         _lastExport.value = file
                         _exporting.value = false
                         _message.value = if (saved != null) {
-                            "Vídeo guardado en la galería"
+                            if (GallerySaver.openInGallery(context, saved)) {
+                                "Vídeo guardado y abierto en la galería"
+                            } else {
+                                "Vídeo guardado en la galería"
+                            }
                         } else {
                             "Vídeo exportado"
                         }
