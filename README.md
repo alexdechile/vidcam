@@ -3,12 +3,14 @@
 Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos:
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
 capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
-rotables y animables con grabación de movimiento en el lienzo, con exportación a
-MP4 (H.264/AAC) con guardado en galería y hoja de compartir.
+rotables y animables con grabación de movimiento en el lienzo, deshacer/rehacer
+y proyectos guardados en JSON, con exportación a MP4 (H.264/AAC) con guardado en
+galería y hoja de compartir.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
-`openspec/changes/add-vidcam-mvp/` y
-`openspec/changes/add-layer-motion-recording/`.
+`openspec/changes/add-vidcam-mvp/`,
+`openspec/changes/add-layer-motion-recording/` y
+`openspec/changes/add-project-persistence-and-undo/`.
 
 ## Requisitos
 
@@ -99,17 +101,34 @@ git push origin v1.0.0
   del hueco disponible). Así las coordenadas normalizadas de las capas coinciden
   exactamente entre edición y exportación.
 - **Nuevo proyecto**: el botón "Nuevo" de la barra superior descarta el trabajo
-  actual y deja el editor vacío. Como todavía no hay persistencia, no guarda
-  nada antes de limpiar, así que pide confirmación cuando hay clips, capas o
-  música; si el proyecto ya está vacío, no pregunta nada.
+  actual y deja el editor vacío. Pide confirmación solo cuando hay cambios sin
+  guardar.
+- **Deshacer y rehacer**: los botones de la fila de controles retroceden o
+  rehacen las ediciones del proyecto (clips, recortes, capas, animación, música).
+  Las ediciones continuas —arrastrar un recorte, mover o pellizcar una capa,
+  desplazar un control— se agrupan en una sola entrada de historial, así que
+  deshacer retrocede el gesto completo y no un fotograma intermedio. El
+  historial se pierde al abrir o crear otro proyecto.
+- **Proyectos guardados (JSON)**: el menú de la barra superior ("⋮") permite
+  guardar, guardar como y abrir proyectos. Cada proyecto se serializa con
+  kotlinx.serialization a un JSON en `filesDir/projects/`, con nombre y fechas;
+  la lista muestra los más recientes primero y permite borrarlos. Los medios que
+  referencian los clips y las imágenes importadas se copian a `filesDir/media`
+  (no a la caché) para que un proyecto guardado siga funcionando después.
 - **Apertura en la galería**: al terminar la exportación, además de guardar el
   MP4 en la galería, la app lo abre en el visor de vídeo del sistema mediante
   `ACTION_VIEW`. Si ninguna aplicación puede manejarlo, el vídeo queda guardado
   igualmente y solo se muestra el aviso.
+- **Música**: el selector lista la música del dispositivo y, debajo, enlaces a
+  fuentes de música gratis (YouTube Audio Library, Pixabay, Free Music Archive,
+  ccMixter y Musopen) con un botón "Actualizar" que vuelve a leer `MediaStore`.
+  La app **no empaqueta ninguna pista**: el usuario descarga el archivo y lo usa
+  desde la biblioteca del teléfono, que es lo que permite cada licencia.
 
 ## Estructura
 
 - `app/src/main/java/com/vidcam/app/model`: modelo del proyecto y cálculos de timeline.
+- `app/src/main/java/com/vidcam/app/data`: persistencia de proyectos (JSON por proyecto).
 - `app/src/main/java/com/vidcam/app/capture`: grabación con CameraX.
 - `app/src/main/java/com/vidcam/app/media`: importación y biblioteca de música.
 - `app/src/main/java/com/vidcam/app/editor`: ViewModel y pantalla del editor.
