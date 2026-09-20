@@ -1,7 +1,10 @@
 package com.vidcam.app.model
 
+import kotlinx.serialization.Serializable
+
 const val MAX_DURATION_MS = 30_000L
 
+@Serializable
 data class VideoClip(
     val id: String,
     val uri: String,
@@ -13,6 +16,7 @@ data class VideoClip(
         get() = (trimEndMs - trimStartMs).coerceIn(0L, sourceDurationMs.coerceAtLeast(0L))
 }
 
+@Serializable
 enum class LayerKind { PNG, TEXT }
 
 /**
@@ -20,6 +24,7 @@ enum class LayerKind { PNG, TEXT }
  * línea de tiempo del proyecto (no relativo a la ventana de la capa), para que
  * vista previa y exportación coincidan.
  */
+@Serializable
 data class LayerKeyframe(
     val timeMs: Long,
     val x: Float,
@@ -28,6 +33,7 @@ data class LayerKeyframe(
     val rotationDeg: Float,
 )
 
+@Serializable
 data class OverlayLayer(
     val id: String,
     val kind: LayerKind,
@@ -50,6 +56,7 @@ data class OverlayLayer(
     val keyframes: List<LayerKeyframe> = emptyList(),
 )
 
+@Serializable
 data class MusicTrack(
     val id: Long,
     val uri: String,
@@ -58,6 +65,7 @@ data class MusicTrack(
     val durationMs: Long,
 )
 
+@Serializable
 data class Project(
     val clips: List<VideoClip> = emptyList(),
     val music: MusicTrack? = null,
@@ -71,6 +79,10 @@ data class Project(
 
     val isOverLimit: Boolean
         get() = totalDurationMs > MAX_DURATION_MS
+
+    /** Un proyecto sin clips, capas ni música no tiene nada que guardar. */
+    val isEmpty: Boolean
+        get() = clips.isEmpty() && layers.isEmpty() && music == null
 
     fun clipStartMs(index: Int): Long =
         clips.take(index).sumOf { it.trimmedDurationMs }

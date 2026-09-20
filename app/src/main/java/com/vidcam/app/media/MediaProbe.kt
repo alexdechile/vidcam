@@ -50,9 +50,28 @@ object MediaProbe {
         }
     }
 
-    fun copyToCache(context: Context, uri: Uri, prefix: String): File? = try {
-        val dir = File(context.cacheDir, "imports").apply { mkdirs() }
-        val target = File(dir, "$prefix-${System.currentTimeMillis()}.mp4")
+    /**
+     * Carpeta de medios propia de la app. Vive en `filesDir` y no en la caché
+     * porque los proyectos guardados referencian estos archivos: si el sistema
+     * limpiara la caché, un proyecto guardado quedaría roto.
+     */
+    fun mediaDir(context: Context): File = File(context.filesDir, "media").apply { mkdirs() }
+
+    /** Carpeta de las grabaciones de cámara, también persistente. */
+    fun capturesDir(context: Context): File =
+        File(context.filesDir, "captures").apply { mkdirs() }
+
+    /** Copia el contenido de [uri] a un archivo propio de la app. */
+    fun copyToStorage(
+        context: Context,
+        uri: Uri,
+        prefix: String,
+        extension: String = "mp4",
+    ): File? = try {
+        val target = File(
+            mediaDir(context),
+            "$prefix-${System.currentTimeMillis()}.$extension",
+        )
         context.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output -> input.copyTo(output) }
         }

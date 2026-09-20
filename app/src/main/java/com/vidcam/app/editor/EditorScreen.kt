@@ -2,6 +2,8 @@
 
 package com.vidcam.app.editor
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -28,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -75,6 +78,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -85,9 +89,12 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.vidcam.app.R
 import com.vidcam.app.capture.CameraRecorder
+import com.vidcam.app.data.SavedProject
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
+import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -104,6 +111,7 @@ import com.vidcam.app.ui.GOOGLE_FONT_NAMES
 import com.vidcam.app.ui.rememberGoogleFontFamily
 import com.vidcam.app.ui.rememberGoogleFontsAvailable
 import com.vidcam.app.ui.stickerAssetUri
+import com.vidcam.app.util.formatDateTime
 import com.vidcam.app.util.formatDuration
 import com.vidcam.app.util.formatShortTime
 import kotlinx.coroutines.Dispatchers
@@ -130,6 +138,12 @@ fun EditorScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
     val motionRecording by viewModel.motionRecording.collectAsStateWithLifecycle()
+    val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
+    val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
+    val savedProjects by viewModel.savedProjects.collectAsStateWithLifecycle()
+    val currentProjectName by viewModel.currentProjectName.collectAsStateWithLifecycle()
+    val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
+    val dirty by viewModel.dirty.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -142,6 +156,10 @@ fun EditorScreen(
     var showTextDialog by remember { mutableStateOf(false) }
     var showStickerDialog by remember { mutableStateOf(false) }
     var showNewProjectDialog by remember { mutableStateOf(false) }
+    var showOpenDialog by remember { mutableStateOf(false) }
+    var showSaveAsDialog by remember { mutableStateOf(false) }
+    var showProjectMenu by remember { mutableStateOf(false) }
+    var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
 
     DisposableEffect(lifecycleOwner, canRecord) {
@@ -166,8 +184,7 @@ fun EditorScreen(
     ) { uri -> uri?.let(viewModel::addPngLayer) }
 
     fun startRecording() {
-        val dir = File(context.cacheDir, "captures").apply { mkdirs() }
-        val file = File(dir, "rec-${System.currentTimeMillis()}.mp4")
+        val file = File(MediaProbe.capturesDir(context), "rec-${System.currentTimeMillis()}.mp4")
         recording = true
         recorder.start(file) { recorded ->
             recording = false
@@ -182,14 +199,16 @@ fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("VidCam") },
+                title = {
+                    Text(
+                        text = currentProjectName ?: "VidCam",
+                        maxLines = 1,
+                    )
+                },
                 actions = {
                     TextButton(
                         onClick = {
-                            val hasWork = project.clips.isNotEmpty() ||
-                                project.layers.isNotEmpty() ||
-                                project.music != null
-                            if (hasWork) {
+                            if (dirty) {
                                 showNewProjectDialog = true
                             } else {
                                 viewModel.newProject()
@@ -198,6 +217,50 @@ fun EditorScreen(
                         enabled = !exporting,
                     ) {
                         Text("Nuevo")
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showProjectMenu = true },
+                            enabled = !exporting,
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Proyecto",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showProjectMenu,
+                            onDismissRequest = { showProjectMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Guardar") },
+                                enabled = !project.isEmpty,
+                                onClick = {
+                                    showProjectMenu = false
+                                    if (currentProjectId == null) {
+                                        showSaveAsDialog = true
+                                    } else {
+                                        viewModel.saveProject()
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Guardar como…") },
+                                enabled = !project.isEmpty,
+                                onClick = {
+                                    showProjectMenu = false
+                                    showSaveAsDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Abrir proyecto…") },
+                                onClick = {
+                                    showProjectMenu = false
+                                    viewModel.refreshSavedProjects()
+                                    showOpenDialog = true
+                                },
+                            )
+                        }
                     }
                     if (lastExport != null) {
                         IconButton(onClick = viewModel::shareLastExport) {
@@ -248,6 +311,10 @@ fun EditorScreen(
                 project = project,
                 recording = recording,
                 canRecord = canRecord,
+                canUndo = canUndo,
+                canRedo = canRedo,
+                onUndo = viewModel::undo,
+                onRedo = viewModel::redo,
                 onRequestPermissions = onRequestPermissions,
                 onToggleLens = recorder::toggleLens,
                 onToggleRecord = { if (recording) recorder.stop() else startRecording() },
@@ -313,10 +380,7 @@ fun EditorScreen(
             onDismissRequest = { showNewProjectDialog = false },
             title = { Text("Nuevo proyecto") },
             text = {
-                Text(
-                    "Se descartará el trabajo actual y no se guardará. " +
-                        "¿Quieres empezar de cero?",
-                )
+                Text("Tienes cambios sin guardar. Se descartarán al empezar de cero.")
             },
             confirmButton = {
                 TextButton(
@@ -333,6 +397,62 @@ fun EditorScreen(
                     Text("Cancelar")
                 }
             },
+        )
+    }
+
+    pendingOpen?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingOpen = null },
+            title = { Text("Abrir proyecto") },
+            text = {
+                Text(
+                    "Tienes cambios sin guardar. Se descartarán al abrir " +
+                        "\"${target.name}\".",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.openProject(target)
+                        pendingOpen = null
+                    },
+                ) {
+                    Text("Descartar y abrir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingOpen = null }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (showSaveAsDialog) {
+        SaveProjectDialog(
+            initialName = currentProjectName.orEmpty(),
+            onDismiss = { showSaveAsDialog = false },
+            onConfirm = { name ->
+                viewModel.saveProject(
+                    name = name,
+                    asNew = currentProjectId != null,
+                )
+                showSaveAsDialog = false
+            },
+        )
+    }
+
+    if (showOpenDialog) {
+        OpenProjectDialog(
+            projects = savedProjects,
+            onDismiss = { showOpenDialog = false },
+            onOpen = { saved ->
+                showOpenDialog = false
+                if (dirty) {
+                    pendingOpen = saved
+                } else {
+                    viewModel.openProject(saved)
+                }
+            },
+            onDelete = viewModel::deleteProject,
         )
     }
 
@@ -385,6 +505,10 @@ private fun ControlsSection(
     project: Project,
     recording: Boolean,
     canRecord: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onRequestPermissions: () -> Unit,
     onToggleLens: () -> Unit,
     onToggleRecord: () -> Unit,
@@ -406,6 +530,19 @@ private fun ControlsSection(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onUndo, enabled = canUndo) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_undo),
+                    contentDescription = "Deshacer",
+                )
+            }
+            IconButton(onClick = onRedo, enabled = canRedo) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_redo),
+                    contentDescription = "Rehacer",
+                )
+            }
+            Spacer(Modifier.width(8.dp))
             if (project.clips.isEmpty()) {
                 if (canRecord) {
                     OutlinedButton(onClick = onToggleLens) { Text("Girar") }
@@ -1058,34 +1195,60 @@ private fun StickerPickerDialog(onDismiss: () -> Unit, onPick: (String) -> Unit)
 
 @Composable
 private fun MusicSheet(viewModel: EditorViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     var tracks by remember { mutableStateOf<List<MusicTrack>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
+    fun reload() {
+        loading = true
         viewModel.loadMusic {
             tracks = it
             loading = false
         }
     }
 
+    LaunchedEffect(Unit) { reload() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        when {
-            loading -> Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        text = "Música del dispositivo",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { reload() }) { Text("Actualizar") }
+                }
             }
 
-            tracks.isEmpty() -> Text(
-                text = "No se encontró música en el dispositivo",
-                modifier = Modifier.padding(24.dp),
-            )
+            when {
+                loading -> item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
 
-            else -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(tracks, key = { it.id }) { track ->
+                tracks.isEmpty() -> item {
+                    Text(
+                        text = "No se encontró música en el dispositivo. Descarga una " +
+                            "pista de las fuentes de abajo y toca Actualizar.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                else -> items(tracks, key = { it.id }) { track ->
                     ListItem(
                         headlineContent = { Text(track.title, maxLines = 1) },
                         supportingContent = { Text(track.artist, maxLines = 1) },
@@ -1098,8 +1261,152 @@ private fun MusicSheet(viewModel: EditorViewModel, onDismiss: () -> Unit) {
                     HorizontalDivider()
                 }
             }
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "Música gratis para descargar",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                Text(
+                    text = "Se abre en el navegador. Descarga el archivo y toca " +
+                        "Actualizar para que aparezca en la lista de arriba.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
+            items(FREE_MUSIC_SOURCES) { source ->
+                ListItem(
+                    headlineContent = { Text(source.name) },
+                    supportingContent = { Text(source.note) },
+                    modifier = Modifier.clickable { openUrl(context, source.url) },
+                )
+            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
+}
+
+/** Fuente de música descargable: la app no empaqueta ninguna pista. */
+private data class MusicSource(val name: String, val note: String, val url: String)
+
+private val FREE_MUSIC_SOURCES = listOf(
+    MusicSource(
+        name = "YouTube Audio Library",
+        note = "Gratis para vídeos de YouTube; revisa la licencia de cada pista",
+        url = "https://studio.youtube.com/channel/UC/music",
+    ),
+    MusicSource(
+        name = "Pixabay Music",
+        note = "Uso libre, sin crédito",
+        url = "https://pixabay.com/music/",
+    ),
+    MusicSource(
+        name = "Free Music Archive",
+        note = "Filtra por licencia Creative Commons",
+        url = "https://freemusicarchive.org/",
+    ),
+    MusicSource(
+        name = "ccMixter",
+        note = "Creative Commons; algunas pistas piden crédito",
+        url = "https://ccmixter.org/",
+    ),
+    MusicSource(
+        name = "Musopen",
+        note = "Música clásica y de dominio público",
+        url = "https://musopen.org/music/",
+    ),
+)
+
+private fun openUrl(context: Context, url: String) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    } catch (e: Exception) {
+        // Sin navegador disponible: no hay nada que abrir.
+    }
+}
+
+@Composable
+private fun SaveProjectDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Guardar proyecto") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nombre") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank(),
+            ) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+private fun OpenProjectDialog(
+    projects: List<SavedProject>,
+    onDismiss: () -> Unit,
+    onOpen: (SavedProject) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Abrir proyecto") },
+        text = {
+            if (projects.isEmpty()) {
+                Text("Todavía no hay proyectos guardados.")
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(projects, key = { it.id }) { saved ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpen(saved) }
+                                .padding(vertical = 4.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(saved.name, maxLines = 1)
+                                Text(
+                                    text = formatDateTime(saved.updatedAtMs),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            IconButton(onClick = { onDelete(saved.id) }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Eliminar proyecto",
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
 }
 
 @Composable

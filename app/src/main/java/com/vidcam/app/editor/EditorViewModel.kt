@@ -2,8 +2,11 @@ package com.vidcam.app.editor
 
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.vidcam.app.data.ProjectStore
+import com.vidcam.app.data.SavedProject
 import com.vidcam.app.export.GallerySaver
 import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
@@ -29,6 +32,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -50,31 +56,170 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _motionRecording = MutableStateFlow(false)
     val motionRecording: StateFlow<Boolean> = _motionRecording.asStateFlow()
 
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
+    private val _canRedo = MutableStateFlow(false)
+    val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
+
+    private val _savedProjects = MutableStateFlow<List<SavedProject>>(emptyList())
+    val savedProjects: StateFlow<List<SavedProject>> = _savedProjects.asStateFlow()
+
+    private val _currentProjectId = MutableStateFlow<String?>(null)
+    val currentProjectId: StateFlow<String?> = _currentProjectId.asStateFlow()
+
+    private val _currentProjectName = MutableStateFlow<String?>(null)
+    val currentProjectName: StateFlow<String?> = _currentProjectName.asStateFlow()
+
+    private val _dirty = MutableStateFlow(false)
+    val dirty: StateFlow<Boolean> = _dirty.asStateFlow()
+
     private val musicRepository = MusicRepository(application)
     private val exporter = VideoExporter(application)
+    private val projectStore = ProjectStore(File(application.filesDir, "projects"))
+    private val history = UndoHistory()
+
+    /** Última versión que coincide con lo guardado en disco, para calcular `dirty`. */
+    private var savedSnapshot: Project = _project.value
 
     private val context: Application
         get() = getApplication()
+
+    init {
+        refreshSavedProjects()
+    }
 
     fun consumeMessage() {
         _message.value = null
     }
 
-    private fun update(block: (Project) -> Project) {
-        _project.value = block(_project.value)
+    private fun update(key: String? = null, block: (Project) -> Project) {
+        val before = _project.value
+        val next = block(before)
+        if (next == before) return
+        history.record(before, key, SystemClock.elapsedRealtime())
+        _project.value = next
+        syncHistory()
+    }
+
+    private fun syncHistory() {
+        _canUndo.value = history.canUndo
+        _canRedo.value = history.canRedo
+        _dirty.value = _project.value != savedSnapshot
+    }
+
+    // --- Deshacer / rehacer ------------------------------------------------
+
+    fun undo() {
+        val previous = history.undo(_project.value) ?: return
+        _project.value = previous
+        syncHistory()
+    }
+
+    fun redo() {
+        val next = history.redo(_project.value) ?: return
+        _project.value = next
+        syncHistory()
     }
 
     // --- Proyecto ----------------------------------------------------------
 
-    /**
-     * Descarta el trabajo actual y empieza un proyecto vacío. Todavía no hay
-     * persistencia, así que no se guarda nada antes de limpiar.
-     */
+    /** Descarta el trabajo actual y empieza un proyecto vacío sin guardarlo. */
     fun newProject() {
         if (_exporting.value) return
         _motionRecording.value = false
         _lastExport.value = null
         _project.value = Project()
+        _currentProjectId.value = null
+        _currentProjectName.value = null
+        savedSnapshot = _project.value
+        history.clear()
+        syncHistory()
+    }
+
+    fun refreshSavedProjects() {
+        viewModelScope.launch {
+            _savedProjects.value = withContext(Dispatchers.IO) { projectStore.list() }
+        }
+    }
+
+    /**
+     * Guarda el proyecto actual como JSON en el almacenamiento propio de la app.
+     * Con [asNew] siempre crea una entrada nueva; sin él sobrescribe la que esté
+     * abierta y, si no hay ninguna, crea la primera.
+     */
+    fun saveProject(name: String? = null, asNew: Boolean = false) {
+        val project = _project.value
+        if (project.isEmpty) {
+            _message.value = "Todavía no hay nada que guardar"
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val currentId = _currentProjectId.value
+        val currentName = _currentProjectName.value
+        viewModelScope.launch {
+            val newId = "proj-$nowMs"
+            val id = if (asNew || currentId == null) newId else currentId
+            val previous = if (asNew || currentId == null) {
+                null
+            } else {
+                withContext(Dispatchers.IO) { projectStore.load(id) }
+            }
+            val saved = SavedProject(
+                id = id,
+                name = name?.trim()?.takeIf { it.isNotBlank() }
+                    ?: currentName
+                    ?: defaultProjectName(nowMs),
+                createdAtMs = previous?.createdAtMs ?: nowMs,
+                updatedAtMs = nowMs,
+                project = project,
+            )
+            val ok = withContext(Dispatchers.IO) { projectStore.save(saved) }
+            if (ok) {
+                _currentProjectId.value = saved.id
+                _currentProjectName.value = saved.name
+                savedSnapshot = project
+                syncHistory()
+                _message.value = "Proyecto guardado: ${saved.name}"
+                refreshSavedProjects()
+            } else {
+                _message.value = "No se pudo guardar el proyecto"
+            }
+        }
+    }
+
+    fun openProject(saved: SavedProject) {
+        if (_exporting.value) return
+        _motionRecording.value = false
+        _lastExport.value = null
+        _project.value = saved.project
+        _currentProjectId.value = saved.id
+        _currentProjectName.value = saved.name
+        savedSnapshot = saved.project
+        history.clear()
+        syncHistory()
+        _message.value = "Proyecto abierto: ${saved.name}"
+    }
+
+    fun deleteProject(id: String) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { projectStore.delete(id) }
+            if (_currentProjectId.value == id) {
+                // El proyecto sigue abierto, pero ya no está en disco: vuelve a
+                // contar como cambios sin guardar.
+                _currentProjectId.value = null
+                _currentProjectName.value = null
+                savedSnapshot = Project()
+                syncHistory()
+            }
+            _message.value = if (ok) "Proyecto eliminado" else "No se pudo eliminar"
+            refreshSavedProjects()
+        }
+    }
+
+    private fun defaultProjectName(nowMs: Long): String {
+        val format = SimpleDateFormat("d MMM HH:mm", Locale.forLanguageTag("es"))
+        return "Proyecto ${format.format(Date(nowMs))}"
     }
 
     // --- Clips -------------------------------------------------------------
@@ -91,21 +236,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun importVideo(uri: Uri) {
         viewModelScope.launch {
-            val cached = withContext(Dispatchers.IO) {
-                MediaProbe.copyToCache(context, uri, "clip")
+            val stored = withContext(Dispatchers.IO) {
+                MediaProbe.copyToStorage(context, uri, "clip")
             }
-            if (cached == null) {
+            if (stored == null) {
                 _message.value = "No se pudo importar el vídeo"
                 return@launch
             }
             val duration = withContext(Dispatchers.IO) {
-                MediaProbe.durationMs(context, Uri.fromFile(cached))
+                MediaProbe.durationMs(context, Uri.fromFile(stored))
             }
             if (duration <= 0L) {
                 _message.value = "No se pudo leer el vídeo importado"
                 return@launch
             }
-            addClip(Uri.fromFile(cached).toString(), duration)
+            addClip(Uri.fromFile(stored).toString(), duration)
         }
     }
 
@@ -127,7 +272,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun removeClip(id: String) =
         update { project -> project.copy(clips = project.clips.filterNot { it.id == id }) }
 
-    fun updateTrim(id: String, startMs: Long, endMs: Long) = update { project ->
+    fun updateTrim(id: String, startMs: Long, endMs: Long) = update("trim:$id") { project ->
         val others = project.clips.filterNot { it.id == id }.sumOf { it.trimmedDurationMs }
         val maxForClip = (MAX_DURATION_MS - others).coerceAtLeast(0L)
         project.copy(
@@ -160,7 +305,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun setMusicEnabled(enabled: Boolean) =
         update { it.copy(musicEnabled = enabled && it.music != null) }
 
-    fun setMusicStart(ms: Long) = update { project ->
+    fun setMusicStart(ms: Long) = update("music-start") { project ->
         val max = (project.music?.durationMs ?: 0L).coerceAtLeast(0L)
         project.copy(musicStartMs = ms.coerceIn(0L, max))
     }
@@ -170,12 +315,35 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // --- Capas -------------------------------------------------------------
 
-    fun addPngLayer(uri: Uri) = update { project ->
+    /**
+     * Agrega una capa PNG. Los stickers integrados (`asset://`) se usan tal cual;
+     * una imagen elegida de la galería se copia al almacenamiento propio para que
+     * el proyecto guardado siga funcionando cuando caduque el permiso del
+     * selector.
+     */
+    fun addPngLayer(uri: Uri) {
+        if (uri.scheme == "asset") {
+            addPngLayerWithUri(uri.toString())
+            return
+        }
+        viewModelScope.launch {
+            val stored = withContext(Dispatchers.IO) {
+                MediaProbe.copyToStorage(context, uri, "png", "png")
+            }
+            if (stored == null) {
+                _message.value = "No se pudo agregar la imagen"
+                return@launch
+            }
+            addPngLayerWithUri(Uri.fromFile(stored).toString())
+        }
+    }
+
+    private fun addPngLayerWithUri(uri: String) = update { project ->
         project.copy(
             layers = project.layers + OverlayLayer(
                 id = "layer-${System.currentTimeMillis()}",
                 kind = LayerKind.PNG,
-                uri = uri.toString(),
+                uri = uri,
                 label = "Imagen",
                 endMs = project.totalDurationMs.coerceAtLeast(1000L),
             ),
@@ -195,7 +363,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    fun updateLayer(layer: OverlayLayer) = update { project ->
+    fun updateLayer(layer: OverlayLayer) = update("layer-edit:${layer.id}") { project ->
         project.copy(layers = project.layers.map { if (it.id == layer.id) layer else it })
     }
 
@@ -219,9 +387,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * gesto, en vez de derivar desde el inicio de la línea de tiempo. El
      * movimiento se registra desde la muestra siguiente (unos milisegundos
      * después).
+     *
+     * Todas las muestras de un mismo gesto comparten clave de historial, así que
+     * "deshacer" retrocede el gesto completo y no un fotograma intermedio.
      */
     fun applyLayerGesture(layer: OverlayLayer, atMs: Long, force: Boolean = false) =
-        update { project ->
+        update("gesture:${layer.id}") { project ->
             val target = project.layers.firstOrNull { it.id == layer.id }
                 ?: return@update project
             if (!_motionRecording.value && target.keyframes.isEmpty()) {
