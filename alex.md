@@ -22,7 +22,7 @@
   editar vídeos verticales ≤ 30 s: cámara con audio, importación, música del
   dispositivo, capas PNG/textos interactivas y exportación MP4 (H.264/AAC).
 - Especificado en OpenSpec en `openspec/changes/add-vidcam-mvp/`.
-- Versión actual: 1.0.0 release firmada y entregada (3,01 MB, R8 + shrink).
+- Versión actual: 1.0.5 release firmada y entregada (R8 + shrink).
 
 ## Forma de trabajo
 
