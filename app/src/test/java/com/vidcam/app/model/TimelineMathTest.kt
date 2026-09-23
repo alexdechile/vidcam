@@ -43,6 +43,37 @@ class TimelineMathTest {
     }
 
     @Test
+    fun effectiveDurationIsTrimmedDividedBySpeed() {
+        val c = clip("a", 10_000, 1_000, 9_000).copy(playbackSpeed = 4f)
+        assertEquals(2_000L, c.effectiveDurationMs)
+    }
+
+    @Test
+    fun totalDurationUsesEffectiveDurations() {
+        val clips = listOf(
+            clip("a", 10_000).copy(playbackSpeed = 2f),
+            clip("b", 10_000).copy(playbackSpeed = 0.5f),
+        )
+        assertEquals(25_000L, TimelineMath.totalDuration(clips))
+    }
+
+    @Test
+    fun trimToMaxConvertsBudgetToSourceWithSlowSpeed() {
+        val slow = clip("a", 120_000).copy(playbackSpeed = 0.5f)
+        val result = TimelineMath.trimToMax(slow, MAX_DURATION_MS)
+        assertEquals(15_000L, result.trimmedDurationMs)
+        assertEquals(MAX_DURATION_MS, result.effectiveDurationMs)
+    }
+
+    @Test
+    fun trimToMaxAllowsMoreSourceWithFastSpeed() {
+        val fast = clip("a", 200_000).copy(playbackSpeed = 4f)
+        val result = TimelineMath.trimToMax(fast, MAX_DURATION_MS)
+        assertEquals(120_000L, result.trimmedDurationMs)
+        assertEquals(MAX_DURATION_MS, result.effectiveDurationMs)
+    }
+
+    @Test
     fun musicWindowRespectsStartAndTimeline() {
         val project = Project(
             clips = listOf(clip("a", 10_000)),

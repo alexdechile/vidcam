@@ -18,3 +18,13 @@ fun formatShortTime(ms: Long): String =
 /** Fecha y hora legibles para la lista de proyectos guardados. */
 fun formatDateTime(ms: Long): String =
     SimpleDateFormat("d MMM yyyy · HH:mm", Locale.forLanguageTag("es")).format(Date(ms))
+
+/** Etiqueta de velocidad de reproducción, p. ej. "0.25x", "2x". */
+fun formatSpeed(speed: Float): String {
+    val number = if (speed % 1f == 0f) {
+        speed.toInt().toString()
+    } else {
+        speed.toString().trimEnd('0').removeSuffix(".")
+    }
+    return "${number}x"
+}

@@ -39,6 +39,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,6 +86,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -95,6 +97,7 @@ import com.vidcam.app.data.SavedProject
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.media.MediaProbe
+import com.vidcam.app.model.CLIP_SPEEDS
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -114,6 +117,7 @@ import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDateTime
 import com.vidcam.app.util.formatDuration
 import com.vidcam.app.util.formatShortTime
+import com.vidcam.app.util.formatSpeed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -161,6 +165,7 @@ fun EditorScreen(
     var showProjectMenu by remember { mutableStateOf(false) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
+    var recordSpeed by remember { mutableStateOf(1f) }
 
     DisposableEffect(lifecycleOwner, canRecord) {
         if (canRecord) recorder.controller.bindToLifecycle(lifecycleOwner)
@@ -188,7 +193,7 @@ fun EditorScreen(
         recording = true
         recorder.start(file) { recorded ->
             recording = false
-            viewModel.addRecordedClip(recorded)
+            viewModel.addRecordedClip(recorded, recordSpeed)
         }
         scope.launch {
             delay(MAX_DURATION_MS)
@@ -333,6 +338,8 @@ fun EditorScreen(
                 onMusic = { showMusicSheet = true },
                 motionRecording = motionRecording,
                 onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
+                recordSpeed = recordSpeed,
+                onSelectSpeed = { recordSpeed = it },
                 viewModel = viewModel,
             )
 
@@ -519,6 +526,8 @@ private fun ControlsSection(
     onMusic: () -> Unit,
     motionRecording: Boolean,
     onToggleMotion: () -> Unit,
+    recordSpeed: Float,
+    onSelectSpeed: (Float) -> Unit,
     viewModel: EditorViewModel,
 ) {
     Column(
@@ -577,6 +586,15 @@ private fun ControlsSection(
             ) {
                 Text(if (motionRecording) "Detener grabación" else "Grabar movimiento")
             }
+        }
+
+        if (project.clips.isEmpty() && canRecord) {
+            SpeedChips(
+                selected = recordSpeed,
+                onSelect = onSelectSpeed,
+                enabled = !recording,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
 
         if (motionRecording) {
@@ -724,7 +742,7 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Clip · ${formatDuration(clip.trimmedDurationMs)}",
+                text = "Clip · ${formatDuration(clip.effectiveDurationMs)}",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -739,6 +757,34 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
             },
             valueRange = 0f..clip.sourceDurationMs.toFloat().coerceAtLeast(1f),
         )
+        SpeedChips(
+            selected = clip.playbackSpeed,
+            onSelect = { viewModel.setClipSpeed(clip.id, it) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SpeedChips(
+    selected: Float,
+    onSelect: (Float) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CLIP_SPEEDS.forEach { speed ->
+            FilterChip(
+                selected = speed == selected,
+                onClick = { onSelect(speed) },
+                enabled = enabled,
+                label = { Text(formatSpeed(speed), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
     }
 }
 
@@ -827,6 +873,7 @@ private fun TimelinePreview(
     LaunchedEffect(videoPlayer) {
         var previousPositionMs = 0L
         var reachedEnd = false
+        var lastSpeed = 1f
         while (true) {
             // Sincronizado con el fotograma mientras hay reproducción; en pausa
             // basta un muestreo lento.
@@ -837,13 +884,20 @@ private fun TimelinePreview(
             }
             val clips = clipsState.value
             val index = videoPlayer.currentMediaItemIndex
+            val speed = clips.getOrNull(index)?.playbackSpeed?.coerceAtLeast(0.01f) ?: 1f
+            // Cámara lenta/rápida en la vista previa: el clip local avanza a
+            // `velocidad` mientras el timeline avanza en tiempo real.
+            if (speed != lastSpeed) {
+                lastSpeed = speed
+                videoPlayer.playbackParameters = PlaybackParameters(speed, speed)
+            }
             val base = if (index in clips.indices) {
-                clips.take(index).sumOf { it.trimmedDurationMs }
+                clips.take(index).sumOf { it.effectiveDurationMs }
             } else {
                 0L
             }
-            val total = clips.sumOf { it.trimmedDurationMs }
-            val next = base + videoPlayer.currentPosition
+            val total = clips.sumOf { it.effectiveDurationMs }
+            val next = base + (videoPlayer.currentPosition / speed).toLong()
             if (recordingNow) {
                 // Solo se considera "pasada terminada" después de haber visto el
                 // final, para no confundir el seek inicial a 0 con el reinicio

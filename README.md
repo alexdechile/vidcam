@@ -9,8 +9,9 @@ galería y hoja de compartir.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
-`openspec/changes/add-layer-motion-recording/` y
-`openspec/changes/add-project-persistence-and-undo/`.
+`openspec/changes/add-layer-motion-recording/`,
+`openspec/changes/add-project-persistence-and-undo/` y
+`openspec/changes/add-clip-speed/`.
 
 ## Requisitos
 
@@ -100,6 +101,14 @@ git push origin v1.0.0
   encuadre que el fotograma de salida (el del primer clip, ajustado *fit* dentro
   del hueco disponible). Así las coordenadas normalizadas de las capas coinciden
   exactamente entre edición y exportación.
+- **Cámara rápida y cámara lenta**: cada clip tiene una velocidad de
+  reproducción (0.25x, 0.5x, 1x, 2x o 4x). Antes de grabar se elige con unos
+  chips junto a los controles de cámara, y cualquier clip de la línea de tiempo
+  permite cambiarla después. La duración que un clip ocupa en el timeline es su
+  recorte dividido por la velocidad (rápido acorta, lento alarga), el límite de
+  30 s se mide sobre esa duración efectiva —si una velocidad no cabe, el clip se
+  recorta por el final—, la vista previa y el MP4 exportado reproducen el efecto
+  con su audio, y la velocidad se guarda en el JSON del proyecto.
 - **Nuevo proyecto**: el botón "Nuevo" de la barra superior descarta el trabajo
   actual y deja el editor vacío. Pide confirmación solo cuando hay cambios sin
   guardar.

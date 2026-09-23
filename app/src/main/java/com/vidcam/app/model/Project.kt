@@ -4,6 +4,9 @@ import kotlinx.serialization.Serializable
 
 const val MAX_DURATION_MS = 30_000L
 
+/** Velocidades de reproducción disponibles (cámara lenta y rápida). */
+val CLIP_SPEEDS: List<Float> = listOf(0.25f, 0.5f, 1f, 2f, 4f)
+
 @Serializable
 data class VideoClip(
     val id: String,
@@ -11,9 +14,15 @@ data class VideoClip(
     val sourceDurationMs: Long,
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = sourceDurationMs,
+    /** Velocidad de reproducción del clip: >1 cámara rápida, <1 cámara lenta. */
+    val playbackSpeed: Float = 1f,
 ) {
     val trimmedDurationMs: Long
         get() = (trimEndMs - trimStartMs).coerceIn(0L, sourceDurationMs.coerceAtLeast(0L))
+
+    /** Duración que el clip ocupa en la línea de tiempo, según su velocidad. */
+    val effectiveDurationMs: Long
+        get() = (trimmedDurationMs / playbackSpeed.coerceAtLeast(0.01f).toDouble()).toLong()
 }
 
 @Serializable
@@ -85,5 +94,5 @@ data class Project(
         get() = clips.isEmpty() && layers.isEmpty() && music == null
 
     fun clipStartMs(index: Int): Long =
-        clips.take(index).sumOf { it.trimmedDurationMs }
+        clips.take(index).sumOf { it.effectiveDurationMs }
 }

@@ -6,8 +6,9 @@ package com.vidcam.app.model
  */
 object TimelineMath {
 
+    /** Suma de los tiempos que cada clip ocupa en la línea de tiempo (duración efectiva). */
     fun totalDuration(clips: List<VideoClip>): Long =
-        clips.sumOf { it.trimmedDurationMs }
+        clips.sumOf { it.effectiveDurationMs }
 
     /** Ajusta el recorte de un clip manteniendo límites válidos dentro del origen. */
     fun clampTrim(clip: VideoClip, startMs: Long, endMs: Long): VideoClip {
@@ -17,16 +18,20 @@ object TimelineMath {
         return clip.copy(trimStartMs = start, trimEndMs = end)
     }
 
-    /** Recorta un clip que exceda el máximo global (30 s) desde su inicio. */
-    fun trimToMax(clip: VideoClip, maxMs: Long = MAX_DURATION_MS): VideoClip =
-        if (clip.trimmedDurationMs <= maxMs) {
-            clip
-        } else {
-            clip.copy(
-                trimStartMs = 0L,
-                trimEndMs = maxMs.coerceAtMost(clip.sourceDurationMs),
-            )
-        }
+    /**
+     * Recorta un clip que exceda [maxMs] de línea de tiempo. Como la velocidad
+     * amplía o reduce la duración efectiva, el tope de origen se convierte
+     * multiplicando por la velocidad del clip.
+     */
+    fun trimToMax(clip: VideoClip, maxMs: Long = MAX_DURATION_MS): VideoClip {
+        if (clip.effectiveDurationMs <= maxMs) return clip
+        val maxSource = (maxMs * clip.playbackSpeed.coerceAtLeast(0.01f)).toLong()
+            .coerceAtMost(clip.sourceDurationMs.coerceAtLeast(0L))
+        return clip.copy(
+            trimStartMs = 0L,
+            trimEndMs = maxSource.coerceAtLeast(0L),
+        )
+    }
 
     /**
      * Ventana [inicio, fin] de la pista de música dentro del archivo original,

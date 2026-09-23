@@ -132,6 +132,7 @@ class VideoExporter(private val context: Context) {
                 .build()
             EditedMediaItem.Builder(mediaItem)
                 .setRemoveAudio(project.originalAudioMuted)
+                .setSpeed(clip.playbackSpeed.coerceAtLeast(0.01f))
                 .build()
         }
         val sequences = mutableListOf(

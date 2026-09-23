@@ -224,14 +224,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // --- Clips -------------------------------------------------------------
 
-    fun addRecordedClip(file: File) {
+    fun addRecordedClip(file: File, speed: Float = 1f) {
         val uri = Uri.fromFile(file)
         val duration = MediaProbe.durationMs(context, uri)
         if (duration <= 0L) {
             _message.value = "No se pudo leer la grabación"
             return
         }
-        addClip(uri.toString(), duration)
+        addClip(uri.toString(), duration, speed)
     }
 
     fun importVideo(uri: Uri) {
@@ -254,7 +254,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun addClip(uri: String, sourceDurationMs: Long) {
+    private fun addClip(uri: String, sourceDurationMs: Long, speed: Float = 1f) {
         val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
         if (remaining <= 0L) {
             _message.value = "Límite de 30 s alcanzado"
@@ -264,6 +264,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             id = "clip-${System.currentTimeMillis()}",
             uri = uri,
             sourceDurationMs = sourceDurationMs,
+            playbackSpeed = speed,
         )
         val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
         update { it.copy(clips = it.clips + trimmed) }
@@ -272,16 +273,42 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun removeClip(id: String) =
         update { project -> project.copy(clips = project.clips.filterNot { it.id == id }) }
 
+    /**
+     * Cambia la velocidad de reproducción (cámara lenta/rápida). Si la duración
+     * efectiva resultante supera el presupuesto restante de 30 s, el clip se
+     * recorta por el final; si no cabe ni un fotograma, no se aplica.
+     */
+    fun setClipSpeed(id: String, speed: Float) {
+        val project = _project.value
+        val clip = project.clips.firstOrNull { it.id == id } ?: return
+        if (speed <= 0f || speed == clip.playbackSpeed) return
+        val others = project.clips.filterNot { it.id == id }.sumOf { it.effectiveDurationMs }
+        val maxTimeline = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        val candidate = clip.copy(playbackSpeed = speed)
+        val fitted = if (candidate.effectiveDurationMs <= maxTimeline) {
+            candidate
+        } else if (maxTimeline <= 0L) {
+            _message.value = "Límite de 30 s alcanzado"
+            return
+        } else {
+            val maxSource = (maxTimeline * speed).toLong()
+            TimelineMath.clampTrim(candidate, clip.trimStartMs, clip.trimStartMs + maxSource)
+        }
+        update { p -> p.copy(clips = p.clips.map { if (it.id == id) fitted else it }) }
+    }
+
     fun updateTrim(id: String, startMs: Long, endMs: Long) = update("trim:$id") { project ->
-        val others = project.clips.filterNot { it.id == id }.sumOf { it.trimmedDurationMs }
-        val maxForClip = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        val clip = project.clips.firstOrNull { it.id == id } ?: return@update project
+        val others = project.clips.filterNot { it.id == id }.sumOf { it.effectiveDurationMs }
+        val maxTimeline = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        val maxForClip = (maxTimeline * clip.playbackSpeed.coerceAtLeast(0.01f)).toLong()
         project.copy(
-            clips = project.clips.map { clip ->
-                if (clip.id != id) {
-                    clip
+            clips = project.clips.map { thisClip ->
+                if (thisClip.id != id) {
+                    thisClip
                 } else {
                     val boundedEnd = endMs.coerceAtMost(startMs + maxForClip)
-                    TimelineMath.clampTrim(clip, startMs, boundedEnd)
+                    TimelineMath.clampTrim(thisClip, startMs, boundedEnd)
                 }
             },
         )
