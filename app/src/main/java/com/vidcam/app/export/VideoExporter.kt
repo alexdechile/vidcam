@@ -10,6 +10,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.SpeedChangeEffect
 import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -138,10 +139,25 @@ class VideoExporter(private val context: Context) {
                         .build(),
                 )
                 .build()
-            EditedMediaItem.Builder(mediaItem)
-                .setRemoveAudio(project.originalAudioMuted)
-                .setSpeed(ConstantSpeed(clip.playbackSpeed.coerceAtLeast(0.01f)))
-                .build()
+            val speed = clip.playbackSpeed.coerceAtLeast(0.01f)
+            val builder = EditedMediaItem.Builder(mediaItem)
+            if (project.originalAudioMuted) {
+                builder.setRemoveAudio(true)
+            }
+            if (speed != 1f) {
+                // En Media3 1.5 la velocidad se pide con efectos: el par
+                // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
+                // la sincronización; sin audio basta con SpeedChangeEffect.
+                val effects = if (project.originalAudioMuted) {
+                    Effects(emptyList(), listOf(SpeedChangeEffect(speed)))
+                } else {
+                    val (audioProcessor, videoEffect) =
+                        Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
+                    Effects(listOf(audioProcessor), listOf(videoEffect))
+                }
+                builder.setEffects(effects)
+            }
+            builder.build()
         }
         val sequences = mutableListOf(
             EditedMediaItemSequence.Builder(videoItems).build(),
