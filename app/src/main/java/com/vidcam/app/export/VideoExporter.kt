@@ -3,9 +3,11 @@ package com.vidcam.app.export
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.TextureOverlay
@@ -119,6 +121,12 @@ class VideoExporter(private val context: Context) {
         handler = null
     }
 
+    /** [SpeedProvider] de velocidad constante para cámara rápida/lenta en la exportación. */
+    private class ConstantSpeed(private val speed: Float) : SpeedProvider {
+        override fun getSpeed(timeUs: Long): Float = speed
+        override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+    }
+
     private fun buildSequences(project: Project): List<EditedMediaItemSequence> {
         val videoItems = project.clips.map { clip ->
             val mediaItem = MediaItem.Builder()
@@ -132,7 +140,7 @@ class VideoExporter(private val context: Context) {
                 .build()
             EditedMediaItem.Builder(mediaItem)
                 .setRemoveAudio(project.originalAudioMuted)
-                .setSpeed(clip.playbackSpeed.coerceAtLeast(0.01f))
+                .setSpeed(ConstantSpeed(clip.playbackSpeed.coerceAtLeast(0.01f)))
                 .build()
         }
         val sequences = mutableListOf(
