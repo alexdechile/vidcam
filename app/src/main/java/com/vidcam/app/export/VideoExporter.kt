@@ -151,9 +151,9 @@ class VideoExporter(private val context: Context) {
                 val effects = if (project.originalAudioMuted) {
                     Effects(emptyList(), listOf(SpeedChangeEffect(speed)))
                 } else {
-                    val (audioProcessor, videoEffect) =
+                    val speedPair =
                         Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
-                    Effects(listOf(audioProcessor), listOf(videoEffect))
+                    Effects(listOf(speedPair.first), listOf(speedPair.second))
                 }
                 builder.setEffects(effects)
             }
