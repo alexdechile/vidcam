@@ -829,6 +829,7 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
                 },
             )
         }
+    }
 }
 
 @Composable
