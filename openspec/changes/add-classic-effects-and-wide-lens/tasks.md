@@ -18,6 +18,6 @@
 - [x] Guardar y reabrir proyecto conservando filtro y lente ancho por clip
 - [x] Tests: matrices de cada preset contra valor esperado; `TimelineMath`
   (la duración efectiva NO cambia con filtro/lente)
-- [ ] Compilar con lint + tests + androidTest hasta verde en CI
+- [x] Compilar con lint + tests + androidTest hasta verde en CI
 - [ ] Tag `v1.2.0` → release → descargar APK → enviarlo por WhatsApp y por
   Telegram con el aviso
