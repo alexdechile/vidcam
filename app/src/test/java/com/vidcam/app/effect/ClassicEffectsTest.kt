@@ -62,9 +62,10 @@ class ClassicEffectsTest {
             // Fila alfa en column-major: índices 3, 7, 11, 15.
             assertArrayEquals(floatArrayOf(0f, 0f, 0f, 1f), gl.copyOfRange(12, 16), 0.0001f)
             // Offsets de color (última columna de Compose 4x5): índices 4, 9, 14, 19.
+            // Sin offsets, igual que la matriz GL de Media3 (que no tiene columna de traslación).
             val compose = effect.toCompose()
             assertArrayEquals(
-                floatArrayOf(0f, 0f, 0f, 1f),
+                floatArrayOf(0f, 0f, 0f, 0f),
                 floatArrayOf(compose[4], compose[9], compose[14], compose[19]),
                 0.0001f,
             )
