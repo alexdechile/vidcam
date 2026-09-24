@@ -196,11 +196,20 @@ fun EditorScreen(
     ) { uri -> uri?.let(viewModel::addPngLayer) }
 
     fun startRecording() {
+        if (recorder.isRecording) {
+            recorder.stop()
+            return
+        }
         val file = File(MediaProbe.capturesDir(context), "rec-${System.currentTimeMillis()}.mp4")
         recording = true
-        recorder.start(file) { recorded ->
+        recorder.start(file) { recorded, success ->
             recording = false
-            viewModel.addRecordedClip(recorded, recordSpeed, recordFilter, recordWide)
+            if (success) {
+                viewModel.addRecordedClip(recorded, recordSpeed, recordFilter, recordWide)
+            } else {
+                recorded.delete()
+                scope.launch { snackbarHostState.showSnackbar("No se pudo guardar la grabación") }
+            }
         }
         scope.launch {
             delay(MAX_DURATION_MS)
@@ -329,7 +338,14 @@ fun EditorScreen(
                 onRedo = viewModel::redo,
                 onRequestPermissions = onRequestPermissions,
                 onToggleLens = recorder::toggleLens,
-                onToggleRecord = { if (recording) recorder.stop() else startRecording() },
+                onToggleRecord = {
+                    if (recording) {
+                        recording = false
+                        recorder.stop()
+                    } else {
+                        startRecording()
+                    }
+                },
                 onImportVideo = {
                     videoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),

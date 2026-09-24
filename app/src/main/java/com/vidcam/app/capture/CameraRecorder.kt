@@ -28,7 +28,14 @@ class CameraRecorder(rawContext: Context) {
     }
 
     private val mainExecutor = ContextCompat.getMainExecutor(context)
+
+    /**
+     * Se mantiene la referencia hasta que llega `VideoRecordEvent.Finalize`, para que
+     * el `Recording` no sea recolectado por el GC durante la parada (esto emitiría
+     * `ERROR_RECORDING_GARBAGE_COLLECTED` y dejaría la UI pegada en "Detener").
+     */
     private var recording: Recording? = null
+    private var stopRequested = false
 
     val isRecording: Boolean
         get() = recording != null
@@ -42,8 +49,13 @@ class CameraRecorder(rawContext: Context) {
             }
     }
 
+    /**
+     * Inicia una grabación. `onResult` se invoca siempre que llega `Finalize`,
+     * con `success = false` si el evento trae cualquier error (no solo ERROR_NONE),
+     * para que la UI pueda recuperarse en vez de quedarse en "Detener".
+     */
     @SuppressLint("MissingPermission")
-    fun start(output: File, onFinalized: (File) -> Unit) {
+    fun start(output: File, onResult: (File, Boolean) -> Unit) {
         if (recording != null) return
         val hasCamera = ContextCompat.checkSelfPermission(
             context,
@@ -53,25 +65,55 @@ class CameraRecorder(rawContext: Context) {
             context,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
-        if (!hasCamera || !hasMicrophone) return
+        if (!hasCamera || !hasMicrophone) {
+            onResult(output, false)
+            return
+        }
 
         val options = FileOutputOptions.Builder(output).build()
-        recording = controller.startRecording(
-            options,
-            AudioConfig.create(true),
-            mainExecutor,
-        ) { event ->
-            if (event is VideoRecordEvent.Finalize) {
-                recording = null
-                if (event.error == VideoRecordEvent.Finalize.ERROR_NONE) {
-                    onFinalized(output)
+        stopRequested = false
+        recording = try {
+            controller.startRecording(
+                options,
+                AudioConfig.create(true),
+                mainExecutor,
+            ) { event ->
+                if (event is VideoRecordEvent.Finalize) {
+                    recording = null
+                    stopRequested = false
+                    if (event.error == VideoRecordEvent.Finalize.ERROR_NONE) {
+                        onResult(output, true)
+                    } else {
+                        output.delete()
+                        onResult(output, false)
+                    }
                 }
             }
+        } catch (e: RuntimeException) {
+            recording = null
+            stopRequested = false
+            output.delete()
+            onResult(output, false)
+            return
+        }
+        if (recording == null) {
+            onResult(output, false)
         }
     }
 
+    /**
+     * Pide parar la grabación. Es idempotente: no se vuelve a llamar a
+     * `Recording.stop()` si ya se pidió, evitando errores por doble parada.
+     */
     fun stop() {
-        recording?.stop()
-        recording = null
+        val active = recording ?: return
+        if (stopRequested) return
+        stopRequested = true
+        try {
+            active.stop()
+        } catch (e: IllegalStateException) {
+            recording = null
+            stopRequested = false
+        }
     }
 }
