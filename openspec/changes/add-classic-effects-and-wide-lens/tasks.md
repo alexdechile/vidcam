@@ -19,5 +19,5 @@
 - [x] Tests: matrices de cada preset contra valor esperado; `TimelineMath`
   (la duración efectiva NO cambia con filtro/lente)
 - [x] Compilar con lint + tests + androidTest hasta verde en CI
-- [ ] Tag `v1.2.0` → release → descargar APK → enviarlo por WhatsApp y por
+- [x] Tag `v1.2.0` → release → descargar APK → enviarlo por WhatsApp y por
   Telegram con el aviso
