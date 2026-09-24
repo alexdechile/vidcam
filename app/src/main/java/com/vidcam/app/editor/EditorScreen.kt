@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -94,10 +95,13 @@ import androidx.media3.ui.PlayerView
 import com.vidcam.app.R
 import com.vidcam.app.capture.CameraRecorder
 import com.vidcam.app.data.SavedProject
+import com.vidcam.app.effect.media3Effect
+import com.vidcam.app.effect.media3Transformation
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.CLIP_SPEEDS
+import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -106,6 +110,7 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.hitTestLayers
 import com.vidcam.app.model.resolvedAt
 import com.vidcam.app.ui.BUILT_IN_STICKERS
@@ -166,6 +171,8 @@ fun EditorScreen(
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
     var recordSpeed by remember { mutableStateOf(1f) }
+    var recordFilter by remember { mutableStateOf(ColorFilterPreset.NINGUNO) }
+    var recordWide by remember { mutableStateOf(WideLensMode.NORMAL) }
 
     DisposableEffect(lifecycleOwner, canRecord) {
         if (canRecord) recorder.controller.bindToLifecycle(lifecycleOwner)
@@ -193,7 +200,7 @@ fun EditorScreen(
         recording = true
         recorder.start(file) { recorded ->
             recording = false
-            viewModel.addRecordedClip(recorded, recordSpeed)
+            viewModel.addRecordedClip(recorded, recordSpeed, recordFilter, recordWide)
         }
         scope.launch {
             delay(MAX_DURATION_MS)
@@ -340,6 +347,10 @@ fun EditorScreen(
                 onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
                 recordSpeed = recordSpeed,
                 onSelectSpeed = { recordSpeed = it },
+                recordFilter = recordFilter,
+                onSelectRecordFilter = { recordFilter = it },
+                recordWide = recordWide,
+                onToggleRecordWide = { recordWide = if (recordWide == WideLensMode.GRUPO) WideLensMode.NORMAL else WideLensMode.GRUPO },
                 viewModel = viewModel,
             )
 
@@ -528,6 +539,10 @@ private fun ControlsSection(
     onToggleMotion: () -> Unit,
     recordSpeed: Float,
     onSelectSpeed: (Float) -> Unit,
+    recordFilter: ColorFilterPreset,
+    onSelectRecordFilter: (ColorFilterPreset) -> Unit,
+    recordWide: WideLensMode,
+    onToggleRecordWide: () -> Unit,
     viewModel: EditorViewModel,
 ) {
     Column(
@@ -595,6 +610,24 @@ private fun ControlsSection(
                 enabled = !recording,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            FilterChips(
+                selected = recordFilter,
+                onSelect = onSelectRecordFilter,
+                enabled = !recording,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text("Lente ancho", modifier = Modifier.weight(1f))
+                FilterChip(
+                    selected = recordWide == WideLensMode.GRUPO,
+                    onClick = onToggleRecordWide,
+                    enabled = !recording,
+                    label = { Text("Grupo") },
+                )
+            }
         }
 
         if (motionRecording) {
@@ -762,7 +795,40 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
             onSelect = { viewModel.setClipSpeed(clip.id, it) },
             modifier = Modifier.padding(top = 2.dp),
         )
-    }
+        FilterChips(
+            selected = clip.colorFilter,
+            onSelect = { viewModel.setClipColorFilter(clip.id, it) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Text(
+                text = "Lente ancho",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = clip.wideLens == WideLensMode.GRUPO,
+                onClick = {
+                    viewModel.setClipWideLens(
+                        clip.id,
+                        if (clip.wideLens == WideLensMode.GRUPO) {
+                            WideLensMode.NORMAL
+                        } else {
+                            WideLensMode.GRUPO
+                        },
+                    )
+                },
+                label = {
+                    Text(
+                        if (clip.wideLens == WideLensMode.GRUPO) "Grupo" else "Normal",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                },
+            )
+        }
 }
 
 @Composable
@@ -782,6 +848,37 @@ private fun SpeedChips(
                 onClick = { onSelect(speed) },
                 enabled = enabled,
                 label = { Text(formatSpeed(speed), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+private fun ColorFilterPreset.label(): String = when (this) {
+    ColorFilterPreset.NINGUNO -> "Ninguno"
+    ColorFilterPreset.SEPIA -> "Sepia"
+    ColorFilterPreset.BLANCO_Y_NEGRO -> "B/N"
+    ColorFilterPreset.VINTAGE -> "Vintage"
+    ColorFilterPreset.ALTO_CONTRASTE -> "Contraste"
+}
+
+@Composable
+private fun FilterChips(
+    selected: ColorFilterPreset,
+    onSelect: (ColorFilterPreset) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ColorFilterPreset.entries.forEach { preset ->
+            FilterChip(
+                selected = preset == selected,
+                onClick = { onSelect(preset) },
+                enabled = enabled,
+                label = { Text(preset.label(), style = MaterialTheme.typography.labelMedium) },
             )
             Spacer(Modifier.width(4.dp))
         }
@@ -874,6 +971,7 @@ private fun TimelinePreview(
         var previousPositionMs = 0L
         var reachedEnd = false
         var lastSpeed = 1f
+        var lastEffects: List<Effect> = emptyList()
         while (true) {
             // Sincronizado con el fotograma mientras hay reproducción; en pausa
             // basta un muestreo lento.
@@ -884,12 +982,23 @@ private fun TimelinePreview(
             }
             val clips = clipsState.value
             val index = videoPlayer.currentMediaItemIndex
-            val speed = clips.getOrNull(index)?.playbackSpeed?.coerceAtLeast(0.01f) ?: 1f
+            val clip = clips.getOrNull(index)
+            val speed = clip?.playbackSpeed?.coerceAtLeast(0.01f) ?: 1f
             // Cámara lenta/rápida en la vista previa: el clip local avanza a
             // `velocidad` mientras el timeline avanza en tiempo real.
             if (speed != lastSpeed) {
                 lastSpeed = speed
                 videoPlayer.playbackParameters = PlaybackParameters(speed, speed)
+            }
+            val currentEffects: List<Effect> = clip?.let {
+                listOfNotNull(
+                    it.colorFilter.media3Effect(),
+                    it.wideLens.media3Transformation(),
+                )
+            }.orEmpty()
+            if (currentEffects != lastEffects) {
+                lastEffects = currentEffects
+                videoPlayer.setVideoEffects(currentEffects)
             }
             val base = if (index in clips.indices) {
                 clips.take(index).sumOf { it.effectiveDurationMs }

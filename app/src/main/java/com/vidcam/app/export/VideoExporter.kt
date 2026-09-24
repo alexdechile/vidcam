@@ -20,6 +20,8 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.vidcam.app.effect.media3Effect
+import com.vidcam.app.effect.media3Transformation
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import java.io.File
@@ -144,18 +146,32 @@ class VideoExporter(private val context: Context) {
             if (project.originalAudioMuted) {
                 builder.setRemoveAudio(true)
             }
-            if (speed != 1f) {
+            val colorEffect = clip.colorFilter.media3Effect()
+            val wideEffect = clip.wideLens.media3Transformation()
+            val hasVideoEffects = speed != 1f || colorEffect != null || wideEffect != null
+            if (hasVideoEffects) {
                 // En Media3 1.5 la velocidad se pide con efectos: el par
                 // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
-                // la sincronización; sin audio basta con SpeedChangeEffect.
-                val effects = if (project.originalAudioMuted) {
-                    Effects(emptyList(), listOf(SpeedChangeEffect(speed)))
-                } else {
-                    val speedPair =
+                // la sincronización; el filtro de color y el encuadre ancho se
+                // componen como efectos de vídeo adicionales.
+                val speedPair =
+                    if (!project.originalAudioMuted && speed != 1f) {
                         Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
-                    Effects(listOf(speedPair.first), listOf(speedPair.second))
+                    } else {
+                        null
+                    }
+                val videoEffects = buildList {
+                    when {
+                        speed == 1f -> Unit
+                        project.originalAudioMuted -> add(SpeedChangeEffect(speed))
+                        else -> speedPair?.second?.let { add(it) }
+                    }
+                    colorEffect?.let { add(it) }
+                    wideEffect?.let { add(it) }
                 }
-                builder.setEffects(effects)
+                val audioEffects =
+                    if (speedPair != null) listOf(speedPair.first) else emptyList()
+                builder.setEffects(Effects(audioEffects, videoEffects))
             }
             builder.build()
         }

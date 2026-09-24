@@ -7,6 +7,27 @@ const val MAX_DURATION_MS = 30_000L
 /** Velocidades de reproducción disponibles (cámara lenta y rápida). */
 val CLIP_SPEEDS: List<Float> = listOf(0.25f, 0.5f, 1f, 2f, 4f)
 
+/** Presets de filtro de color clásicos disponibles por clip. */
+@Serializable
+enum class ColorFilterPreset {
+    NINGUNO,
+    SEPIA,
+    BLANCO_Y_NEGRO,
+    VINTAGE,
+    ALTO_CONTRASTE,
+}
+
+/**
+ * Factor de encuadre ancho (lente ancho).
+ *
+ * `false` = encuadre normal; `true` = encuadre grupal más abierto (0.65x digital).
+ */
+@Serializable
+enum class WideLensMode {
+    NORMAL,
+    GRUPO,
+}
+
 @Serializable
 data class VideoClip(
     val id: String,
@@ -16,6 +37,10 @@ data class VideoClip(
     val trimEndMs: Long = sourceDurationMs,
     /** Velocidad de reproducción del clip: >1 cámara rápida, <1 cámara lenta. */
     val playbackSpeed: Float = 1f,
+    /** Filtro de color clásico aplicado al clip. NINGUNO = sin filtro (retrocompatible). */
+    val colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
+    /** Encuadre ancho del clip. NORMAL = encuadre normal (retrocompatible). */
+    val wideLens: WideLensMode = WideLensMode.NORMAL,
 ) {
     val trimmedDurationMs: Long
         get() = (trimEndMs - trimStartMs).coerceIn(0L, sourceDurationMs.coerceAtLeast(0L))

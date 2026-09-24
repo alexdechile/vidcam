@@ -12,6 +12,7 @@ import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
+import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -20,6 +21,7 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.clearAnimation
 import com.vidcam.app.model.removeKeyframeAt
 import com.vidcam.app.model.seedKeyframesAt
@@ -224,14 +226,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     // --- Clips -------------------------------------------------------------
 
-    fun addRecordedClip(file: File, speed: Float = 1f) {
+    fun addRecordedClip(
+        file: File,
+        speed: Float = 1f,
+        colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
+        wideLens: WideLensMode = WideLensMode.NORMAL,
+    ) {
         val uri = Uri.fromFile(file)
         val duration = MediaProbe.durationMs(context, uri)
         if (duration <= 0L) {
             _message.value = "No se pudo leer la grabación"
             return
         }
-        addClip(uri.toString(), duration, speed)
+        addClip(uri.toString(), duration, speed, colorFilter, wideLens)
     }
 
     fun importVideo(uri: Uri) {
@@ -254,7 +261,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun addClip(uri: String, sourceDurationMs: Long, speed: Float = 1f) {
+    private fun addClip(
+        uri: String,
+        sourceDurationMs: Long,
+        speed: Float = 1f,
+        colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
+        wideLens: WideLensMode = WideLensMode.NORMAL,
+    ) {
         val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
         if (remaining <= 0L) {
             _message.value = "Límite de 30 s alcanzado"
@@ -265,6 +278,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             uri = uri,
             sourceDurationMs = sourceDurationMs,
             playbackSpeed = speed,
+            colorFilter = colorFilter,
+            wideLens = wideLens,
         )
         val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
         update { it.copy(clips = it.clips + trimmed) }
@@ -296,6 +311,24 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         update { p -> p.copy(clips = p.clips.map { if (it.id == id) fitted else it }) }
     }
+
+    fun setClipColorFilter(id: String, preset: ColorFilterPreset) =
+        update("filter:$id") { project ->
+            project.copy(
+                clips = project.clips.map { clip ->
+                    if (clip.id == id) clip.copy(colorFilter = preset) else clip
+                },
+            )
+        }
+
+    fun setClipWideLens(id: String, wideLens: WideLensMode) =
+        update("wide:$id") { project ->
+            project.copy(
+                clips = project.clips.map { clip ->
+                    if (clip.id == id) clip.copy(wideLens = wideLens) else clip
+                },
+            )
+        }
 
     fun updateTrim(id: String, startMs: Long, endMs: Long) = update("trim:$id") { project ->
         val clip = project.clips.firstOrNull { it.id == id } ?: return@update project

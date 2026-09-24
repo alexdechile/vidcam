@@ -49,6 +49,20 @@ class TimelineMathTest {
     }
 
     @Test
+    fun filtrosYLenteNoCambianDuracion() {
+        val base = clip("a", 10_000, 1_000, 9_000)
+        val filtrada = base.copy(
+            colorFilter = ColorFilterPreset.SEPIA,
+            wideLens = WideLensMode.GRUPO,
+        )
+        assertEquals(base.effectiveDurationMs, filtrada.effectiveDurationMs)
+        assertEquals(
+            TimelineMath.totalDuration(listOf(base)),
+            TimelineMath.totalDuration(listOf(filtrada)),
+        )
+    }
+
+    @Test
     fun totalDurationUsesEffectiveDurations() {
         val clips = listOf(
             clip("a", 10_000).copy(playbackSpeed = 2f),

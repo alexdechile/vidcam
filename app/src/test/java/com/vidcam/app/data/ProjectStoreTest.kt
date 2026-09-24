@@ -1,11 +1,13 @@
 package com.vidcam.app.data
 
+import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.WideLensMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -29,6 +31,8 @@ class ProjectStoreTest {
                 sourceDurationMs = 8_000L,
                 trimStartMs = 500L,
                 trimEndMs = 6_500L,
+                colorFilter = ColorFilterPreset.SEPIA,
+                wideLens = WideLensMode.GRUPO,
             ),
             VideoClip(id = "clip-2", uri = "file:///data/media/clip-2.mp4", sourceDurationMs = 3_000L),
         ),
@@ -128,5 +132,33 @@ class ProjectStoreTest {
         assertFalse(temp.root.resolve("projects").exists())
         assertTrue(store.save(SavedProject("p1", "Uno", 0L, 0L, Project())))
         assertTrue(temp.root.resolve("projects").isDirectory)
+    }
+
+    @Test
+    fun `un json de una version anterior carga con filtros por defecto`() {
+        // Antes del lente ancho y los filtros, VideoClip no tenía estos campos.
+        val legacy = """
+            {
+              "id": "viejo",
+              "name": "Viejo",
+              "createdAtMs": 0,
+              "updatedAtMs": 0,
+              "project": {
+                "clips": [
+                  {
+                    "id": "clip-legacy",
+                    "uri": "file:///data/media/legacy.mp4",
+                    "sourceDurationMs": 3000
+                  }
+                ]
+              }
+            }
+        """.trimIndent()
+        temp.root.resolve("projects").mkdirs()
+        temp.root.resolve("projects").resolve("viejo.json").writeText(legacy)
+
+        val loaded = store.load("viejo")?.project?.clips?.first()
+        assertEquals(ColorFilterPreset.NINGUNO, loaded?.colorFilter)
+        assertEquals(WideLensMode.NORMAL, loaded?.wideLens)
     }
 }
