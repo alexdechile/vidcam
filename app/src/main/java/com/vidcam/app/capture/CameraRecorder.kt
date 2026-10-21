@@ -22,7 +22,11 @@ import java.io.File
  * Controlador de cámara basado en CameraX que graba vídeo vertical con audio,
  * permite alternar la cámara frontal/trasera y activar/desactivar la estabilización
  * de imagen (EIS y OIS por hardware).
+ *
+ * Toda la clase está anotada con [ExperimentalCamera2Interop] porque usa
+ * [Camera2CameraControl] para aplicar las opciones de captura de estabilización.
  */
+@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 class CameraRecorder(rawContext: Context) {
 
     private val context: Context = rawContext.applicationContext
@@ -48,13 +52,11 @@ class CameraRecorder(rawContext: Context) {
     val isRecording: Boolean
         get() = recording != null
 
-    @OptIn(ExperimentalCamera2Interop::class)
     fun setStabilization(enabled: Boolean) {
         stabilizationEnabled = enabled
         applyStabilization()
     }
 
-    @OptIn(ExperimentalCamera2Interop::class)
     fun applyStabilization() {
         val control = controller.cameraControl ?: return
         try {
