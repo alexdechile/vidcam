@@ -1,6 +1,7 @@
 package com.vidcam.app.data
 
 import com.vidcam.app.model.ColorFilterPreset
+import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MusicTrack
@@ -33,6 +34,7 @@ class ProjectStoreTest {
                 trimEndMs = 6_500L,
                 colorFilter = ColorFilterPreset.SEPIA,
                 wideLens = WideLensMode.GRUPO,
+                shake = ShakeIntensity.MEDIO,
             ),
             VideoClip(id = "clip-2", uri = "file:///data/media/clip-2.mp4", sourceDurationMs = 3_000L),
         ),
@@ -160,5 +162,6 @@ class ProjectStoreTest {
         val loaded = store.load("viejo")?.project?.clips?.first()
         assertEquals(ColorFilterPreset.NINGUNO, loaded?.colorFilter)
         assertEquals(WideLensMode.NORMAL, loaded?.wideLens)
+        assertEquals(ShakeIntensity.NINGUNO, loaded?.shake)
     }
 }

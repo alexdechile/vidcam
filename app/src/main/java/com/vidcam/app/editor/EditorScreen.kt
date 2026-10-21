@@ -95,13 +95,13 @@ import androidx.media3.ui.PlayerView
 import com.vidcam.app.R
 import com.vidcam.app.capture.CameraRecorder
 import com.vidcam.app.data.SavedProject
-import com.vidcam.app.effect.media3Effect
-import com.vidcam.app.effect.media3Transformation
+import com.vidcam.app.effect.*
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.CLIP_SPEEDS
 import com.vidcam.app.model.ColorFilterPreset
+import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -173,6 +173,8 @@ fun EditorScreen(
     var recordSpeed by remember { mutableStateOf(1f) }
     var recordFilter by remember { mutableStateOf(ColorFilterPreset.NINGUNO) }
     var recordWide by remember { mutableStateOf(WideLensMode.NORMAL) }
+    var recordShake by remember { mutableStateOf(ShakeIntensity.NINGUNO) }
+    var cameraStabilization by remember { mutableStateOf(recorder.stabilizationEnabled) }
 
     DisposableEffect(lifecycleOwner, canRecord) {
         if (canRecord) recorder.controller.bindToLifecycle(lifecycleOwner)
@@ -205,7 +207,7 @@ fun EditorScreen(
         recorder.start(file) { recorded, success ->
             recording = false
             if (success) {
-                viewModel.addRecordedClip(recorded, recordSpeed, recordFilter, recordWide)
+                viewModel.addRecordedClip(recorded, recordSpeed, recordFilter, recordWide, recordShake)
             } else {
                 recorded.delete()
                 scope.launch { snackbarHostState.showSnackbar("No se pudo guardar la grabación") }
@@ -367,6 +369,13 @@ fun EditorScreen(
                 onSelectRecordFilter = { recordFilter = it },
                 recordWide = recordWide,
                 onToggleRecordWide = { recordWide = if (recordWide == WideLensMode.GRUPO) WideLensMode.NORMAL else WideLensMode.GRUPO },
+                recordShake = recordShake,
+                onSelectRecordShake = { recordShake = it },
+                cameraStabilization = cameraStabilization,
+                onToggleCameraStabilization = {
+                    cameraStabilization = !cameraStabilization
+                    recorder.setStabilization(cameraStabilization)
+                },
                 viewModel = viewModel,
             )
 
@@ -559,6 +568,10 @@ private fun ControlsSection(
     onSelectRecordFilter: (ColorFilterPreset) -> Unit,
     recordWide: WideLensMode,
     onToggleRecordWide: () -> Unit,
+    recordShake: ShakeIntensity,
+    onSelectRecordShake: (ShakeIntensity) -> Unit,
+    cameraStabilization: Boolean,
+    onToggleCameraStabilization: () -> Unit,
     viewModel: EditorViewModel,
 ) {
     Column(
@@ -632,16 +645,29 @@ private fun ControlsSection(
                 enabled = !recording,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            ShakeChips(
+                selected = recordShake,
+                onSelect = onSelectRecordShake,
+                enabled = !recording,
+                modifier = Modifier.padding(top = 4.dp),
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                Text("Lente ancho", modifier = Modifier.weight(1f))
+                Text("Cámara", modifier = Modifier.weight(1f))
                 FilterChip(
                     selected = recordWide == WideLensMode.GRUPO,
                     onClick = onToggleRecordWide,
                     enabled = !recording,
-                    label = { Text("Grupo") },
+                    label = { Text(if (recordWide == WideLensMode.GRUPO) "Lente: Grupo" else "Lente: Normal") },
+                )
+                Spacer(Modifier.width(8.dp))
+                FilterChip(
+                    selected = cameraStabilization,
+                    onClick = onToggleCameraStabilization,
+                    enabled = !recording,
+                    label = { Text(if (cameraStabilization) "Estabilizador: Sí" else "Estabilizador: No") },
                 )
             }
         }
@@ -816,6 +842,11 @@ private fun ClipRow(clip: VideoClip, viewModel: EditorViewModel) {
             onSelect = { viewModel.setClipColorFilter(clip.id, it) },
             modifier = Modifier.padding(top = 2.dp),
         )
+        ShakeChips(
+            selected = clip.shake,
+            onSelect = { viewModel.setClipShake(clip.id, it) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 2.dp),
@@ -865,6 +896,36 @@ private fun SpeedChips(
                 onClick = { onSelect(speed) },
                 enabled = enabled,
                 label = { Text(formatSpeed(speed), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+private fun ShakeIntensity.label(): String = when (this) {
+    ShakeIntensity.NINGUNO -> "Sin temblor"
+    ShakeIntensity.SUAVE -> "Temblor suave"
+    ShakeIntensity.MEDIO -> "Temblor medio"
+    ShakeIntensity.FUERTE -> "Temblor fuerte"
+}
+
+@Composable
+private fun ShakeChips(
+    selected: ShakeIntensity,
+    onSelect: (ShakeIntensity) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ShakeIntensity.entries.forEach { intensity ->
+            FilterChip(
+                selected = intensity == selected,
+                onClick = { onSelect(intensity) },
+                enabled = enabled,
+                label = { Text(intensity.label(), style = MaterialTheme.typography.labelMedium) },
             )
             Spacer(Modifier.width(4.dp))
         }
@@ -1011,6 +1072,7 @@ private fun TimelinePreview(
                 listOfNotNull(
                     it.colorFilter.media3Effect(),
                     it.wideLens.media3Transformation(),
+                    it.shake.media3Transformation(),
                 )
             }.orEmpty()
             if (currentEffects != lastEffects) {

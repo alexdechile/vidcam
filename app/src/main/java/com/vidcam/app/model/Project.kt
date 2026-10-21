@@ -28,6 +28,15 @@ enum class WideLensMode {
     GRUPO,
 }
 
+/** Intensidad del efecto de temblor procedimental de la cámara. */
+@Serializable
+enum class ShakeIntensity {
+    NINGUNO,
+    SUAVE,
+    MEDIO,
+    FUERTE,
+}
+
 @Serializable
 data class VideoClip(
     val id: String,
@@ -41,6 +50,8 @@ data class VideoClip(
     val colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
     /** Encuadre ancho del clip. NORMAL = encuadre normal (retrocompatible). */
     val wideLens: WideLensMode = WideLensMode.NORMAL,
+    /** Efecto de temblor procedimental. NINGUNO = sin temblor (retrocompatible). */
+    val shake: ShakeIntensity = ShakeIntensity.NINGUNO,
 ) {
     val trimmedDurationMs: Long
         get() = (trimEndMs - trimStartMs).coerceIn(0L, sourceDurationMs.coerceAtLeast(0L))

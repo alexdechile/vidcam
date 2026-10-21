@@ -20,8 +20,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
-import com.vidcam.app.effect.media3Effect
-import com.vidcam.app.effect.media3Transformation
+import com.vidcam.app.effect.*
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import java.io.File
@@ -148,7 +147,8 @@ class VideoExporter(private val context: Context) {
             }
             val colorEffect = clip.colorFilter.media3Effect()
             val wideEffect = clip.wideLens.media3Transformation()
-            val hasVideoEffects = speed != 1f || colorEffect != null || wideEffect != null
+            val shakeEffect = clip.shake.media3Transformation()
+            val hasVideoEffects = speed != 1f || colorEffect != null || wideEffect != null || shakeEffect != null
             if (hasVideoEffects) {
                 // En Media3 1.5 la velocidad se pide con efectos: el par
                 // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
@@ -168,6 +168,7 @@ class VideoExporter(private val context: Context) {
                     }
                     colorEffect?.let { add(it) }
                     wideEffect?.let { add(it) }
+                    shakeEffect?.let { add(it) }
                 }
                 val audioEffects =
                     if (speedPair != null) listOf(speedPair.first) else emptyList()

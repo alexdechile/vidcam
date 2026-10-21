@@ -13,6 +13,7 @@ import com.vidcam.app.export.VideoExporter
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
 import com.vidcam.app.model.ColorFilterPreset
+import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -231,6 +232,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         speed: Float = 1f,
         colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
         wideLens: WideLensMode = WideLensMode.NORMAL,
+        shake: ShakeIntensity = ShakeIntensity.NINGUNO,
     ) {
         val uri = Uri.fromFile(file)
         val duration = MediaProbe.durationMs(context, uri)
@@ -238,7 +240,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             _message.value = "No se pudo leer la grabación"
             return
         }
-        addClip(uri.toString(), duration, speed, colorFilter, wideLens)
+        addClip(uri.toString(), duration, speed, colorFilter, wideLens, shake)
     }
 
     fun importVideo(uri: Uri) {
@@ -267,6 +269,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         speed: Float = 1f,
         colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
         wideLens: WideLensMode = WideLensMode.NORMAL,
+        shake: ShakeIntensity = ShakeIntensity.NINGUNO,
     ) {
         val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
         if (remaining <= 0L) {
@@ -280,6 +283,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             playbackSpeed = speed,
             colorFilter = colorFilter,
             wideLens = wideLens,
+            shake = shake,
         )
         val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
         update { it.copy(clips = it.clips + trimmed) }
@@ -317,6 +321,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             project.copy(
                 clips = project.clips.map { clip ->
                     if (clip.id == id) clip.copy(colorFilter = preset) else clip
+                },
+            )
+        }
+
+    fun setClipShake(id: String, intensity: ShakeIntensity) =
+        update("shake:$id") { project ->
+            project.copy(
+                clips = project.clips.map { clip ->
+                    if (clip.id == id) clip.copy(shake = intensity) else clip
                 },
             )
         }

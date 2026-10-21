@@ -4,6 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
@@ -15,8 +19,9 @@ import androidx.core.content.ContextCompat
 import java.io.File
 
 /**
- * Controlador de cámara basado en CameraX que graba vídeo vertical con audio
- * y permite alternar la cámara frontal/trasera.
+ * Controlador de cámara basado en CameraX que graba vídeo vertical con audio,
+ * permite alternar la cámara frontal/trasera y activar/desactivar la estabilización
+ * de imagen (EIS y OIS por hardware).
  */
 class CameraRecorder(rawContext: Context) {
 
@@ -37,8 +42,42 @@ class CameraRecorder(rawContext: Context) {
     private var recording: Recording? = null
     private var stopRequested = false
 
+    var stabilizationEnabled: Boolean = true
+        private set
+
     val isRecording: Boolean
         get() = recording != null
+
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun setStabilization(enabled: Boolean) {
+        stabilizationEnabled = enabled
+        applyStabilization()
+    }
+
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun applyStabilization() {
+        val control = controller.cameraControl ?: return
+        try {
+            val camera2Control = Camera2CameraControl.from(control)
+            val mode = if (stabilizationEnabled) {
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+            } else {
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            }
+            val oisMode = if (stabilizationEnabled) {
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
+            } else {
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
+            }
+            val options = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, mode)
+                .setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, oisMode)
+                .build()
+            camera2Control.setCaptureRequestOptions(options)
+        } catch (_: Exception) {
+            // Silencioso si el dispositivo o HAL no soporta opciones Camera2Interop
+        }
+    }
 
     fun toggleLens() {
         controller.cameraSelector =
@@ -47,6 +86,7 @@ class CameraRecorder(rawContext: Context) {
             } else {
                 CameraSelector.DEFAULT_BACK_CAMERA
             }
+        applyStabilization()
     }
 
     /**
@@ -69,6 +109,8 @@ class CameraRecorder(rawContext: Context) {
             onResult(output, false)
             return
         }
+
+        applyStabilization()
 
         val options = FileOutputOptions.Builder(output).build()
         stopRequested = false
