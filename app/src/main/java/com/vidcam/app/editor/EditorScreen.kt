@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -77,6 +78,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -176,6 +178,7 @@ fun EditorScreen(
     var showOpenDialog by remember { mutableStateOf(false) }
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var showProjectMenu by remember { mutableStateOf(false) }
+    var showExportPreviewDialog by remember { mutableStateOf(false) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
     var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
@@ -305,7 +308,7 @@ fun EditorScreen(
                         }
                     }
                     TextButton(
-                        onClick = viewModel::export,
+                        onClick = { showExportPreviewDialog = true },
                         enabled = !exporting && project.clips.isNotEmpty(),
                     ) {
                         Text("Exportar")
@@ -570,6 +573,17 @@ fun EditorScreen(
                 }
             },
             onDelete = viewModel::deleteProject,
+        )
+    }
+
+    if (showExportPreviewDialog) {
+        ExportPreviewDialog(
+            project = project,
+            onConfirmExport = {
+                showExportPreviewDialog = false
+                viewModel.export()
+            },
+            onDismiss = { showExportPreviewDialog = false },
         )
     }
 
@@ -2370,5 +2384,188 @@ private fun LayerEditDialog(
         },
         confirmButton = { TextButton(onClick = { onConfirm(current) }) { Text("Guardar") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+private fun ExportPreviewDialog(
+    project: Project,
+    onConfirmExport: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val firstClip = project.clips.firstOrNull()
+    val clipUri = firstClip?.uri?.let { Uri.parse(it) }
+
+    val frameBitmap by produceState<Bitmap?>(null, clipUri) {
+        value = withContext(Dispatchers.IO) {
+            clipUri?.let {
+                val startUs = (firstClip?.trimStartMs ?: 0L) * 1000L
+                MediaProbe.extractFrame(context, it, startUs)
+            }
+        }
+    }
+
+    val activeBackground = project.backgrounds.firstOrNull()
+    val backgroundBitmap by produceState<Bitmap?>(null, activeBackground?.uri) {
+        value = withContext(Dispatchers.IO) {
+            activeBackground?.uri?.let { LayerBitmaps.decodePng(context, it) }
+        }
+    }
+
+    val canvasWidthDp = 190.dp
+    val canvasHeightDp = 338.dp // 9:16 vertical
+    val canvasWidthPx = with(density) { canvasWidthDp.toPx() }
+    val canvasHeightPx = with(density) { canvasHeightDp.toPx() }
+
+    val videoWindow = project.videoWindow
+    val originalAspect = frameBitmap?.let {
+        it.width.toFloat() / it.height.toFloat().coerceAtLeast(1f)
+    } ?: (9f / 16f)
+    val windowAspect = VideoWindowMath.aspectRatio(videoWindow.aspect, originalAspect)
+    val (windowWidthPx, windowHeightPx) = VideoWindowMath.windowSize(
+        frameWidth = canvasWidthPx,
+        frameHeight = canvasHeightPx,
+        aspect = windowAspect,
+        scale = videoWindow.scale,
+    )
+    val windowWidthDp = with(density) { windowWidthPx.toDp() }
+    val windowHeightDp = with(density) { windowHeightPx.toDp() }
+
+    val aspectLabel = when (videoWindow.aspect) {
+        VideoWindowAspect.ORIGINAL -> "Original"
+        VideoWindowAspect.CUADRADO -> "1:1 Cuadrado"
+        VideoWindowAspect.VERTICAL -> "9:16 Vertical"
+    }
+    val filterLabel = firstClip?.colorFilter?.label() ?: "Ninguno"
+    val bgLabel = if (project.backgrounds.isNotEmpty()) "PNG" else "Negro"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Vista previa de exportación",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                // Lienzo 9:16 que simula exactamente la salida final de exportación
+                Box(
+                    modifier = Modifier
+                        .size(canvasWidthDp, canvasHeightDp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val bg = backgroundBitmap
+                    if (bg != null) {
+                        Image(
+                            bitmap = bg.asImageBitmap(),
+                            contentDescription = "Fondo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    val frame = frameBitmap
+                    if (frame != null) {
+                        val filter = firstClip?.colorFilter?.composeColorFilter()
+                        val wideScale = if (firstClip?.wideLens == WideLensMode.GRUPO) WIDE_LENS_SCALE else 1f
+
+                        Box(
+                            modifier = Modifier
+                                .size(windowWidthDp, windowHeightDp)
+                                .graphicsLayer {
+                                    translationX = canvasWidthPx * videoWindow.x - size.width / 2f
+                                    translationY = canvasHeightPx * videoWindow.y - size.height / 2f
+                                    rotationZ = videoWindow.rotationDeg
+                                }
+                                .clipToBounds(),
+                        ) {
+                            Image(
+                                bitmap = frame.asImageBitmap(),
+                                contentDescription = "Fotograma",
+                                contentScale = ContentScale.Crop,
+                                colorFilter = filter,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        scaleX = wideScale
+                                        scaleY = wideScale
+                                    },
+                            )
+                        }
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            color = Color.White,
+                        )
+                    }
+
+                    // Capas (texto y stickers) visibles al inicio
+                    project.layers.filter { 0L in it.startMs..it.endMs }.forEach { layer ->
+                        LayerBox(
+                            layer = layer,
+                            containerWidth = canvasWidthPx,
+                            containerHeight = canvasHeightPx,
+                            isSelected = false,
+                            onMeasured = {},
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Resumen de parámetros
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Duración: ${formatDuration(project.totalDurationMs)}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = "Filtro: $filterLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Ventana: $aspectLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = "Fondo: $bgLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirmExport) {
+                Text("Exportar ahora")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Volver a editar")
+            }
+        },
     )
 }

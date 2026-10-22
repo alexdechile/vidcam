@@ -1,11 +1,28 @@
 package com.vidcam.app.media
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import java.io.File
 
 object MediaProbe {
+
+    /** Extrae un fotograma del vídeo como imagen fija [Bitmap] en [timeUs]. */
+    fun extractFrame(context: Context, uri: Uri, timeUs: Long = 0L): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        } catch (e: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (ignored: Exception) {
+            }
+        }
+    }
 
     fun durationMs(context: Context, uri: Uri): Long {
         val retriever = MediaMetadataRetriever()

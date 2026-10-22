@@ -2,11 +2,11 @@
 
 ## Último Realizado
 
-- **2026-10-22**: Corrección del flujo de fondos y ventana de vídeo en modo cámara y visor:
-  1. Habilitación de fondos PNG antes de grabar (duración inicial de 30 s).
-  2. Lienzo de cámara (`CameraCanvas`) con soporte para previsualizar y grabar dentro de la ventana de vídeo (1:1 o 9:16 encogida, móvil y girable con gestos) sobre el fondo.
-  3. Fijación de proporción y scroll vertical en panel de controles/timeline para evitar que el visor se comprima y desaparezca al poblarse de elementos.
-  4. Generación de nueva release y envío a teléfono por `telomando`.
+- **2026-10-22**: Vista previa de exportación con imagen fija (Opción A):
+  1. Diálogo modal `ExportPreviewDialog` al presionar "Exportar", que extrae un fotograma del clip con `MediaMetadataRetriever` y lo renderiza con el fondo PNG, ventana configurada (aspecto, escala, traslación, rotación), filtro de color Compose (`composeColorFilter`), lente ancho y capas superpuestas.
+  2. Resumen visual previo con duración, filtro, tipo de ventana y fondo antes de iniciar el render final.
+  3. Botones "Exportar ahora" y "Volver a editar" para ajustes rápidos sin esperar la exportación completa.
+  4. Generación de release en GitHub Actions y envío del APK a teléfono por `telomando`.
 
 ## ¿Qué hace esta App?
 
