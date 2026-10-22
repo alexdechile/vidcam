@@ -1,7 +1,30 @@
 # Alex — resumen personal
 
-> Referencia de contexto para que las sesiones de este proyecto recuerden al
-> propietario, sus herramientas y su forma de trabajo.
+## Último Realizado
+
+- **2026-10-22**: Corrección de sobrecarga duplicada de `buildCompositorSettings` en `VideoExporter.kt` tras la incorporación de fondos PNG y ventana de vídeo móvil/girable (1:1 y 9:16) con compositor Media3 (v1.3.0). Generación de release y envío a teléfono por `telomando`.
+
+## ¿Qué hace esta App?
+
+**VidCam** es una aplicación Android orientada a la creación y edición rápida de vídeos verticales (≤ 30 s) con exportación MP4 (H.264/AAC):
+- Grabación de cámara con audio, cambio de cámara y estabilizador.
+- Importación de clips de vídeo y ajuste de velocidad por clip.
+- Biblioteca de música del dispositivo y efectos (p. ej. Shake/temblor).
+- Capas interactivas: PNG transparente y textos con Google Fonts, manipulables mediante gestos (arrastrar, escalar, rotar) y grabación de movimiento en el lienzo (animación de posición en tiempo real).
+- Fondos PNG a pantalla completa por tramos de tiempo.
+- Ventana de vídeo configurable (aspecto 1:1 o 9:16), arrastrable, escalable y girable sobre el fondo.
+- Persistencia de proyectos en formato JSON y soporte para Deshacer/Rehacer (Undo/Redo).
+- Exportación acelerada a MP4 (H.264/AAC), guardado directo en galería y diálogo nativo para compartir.
+
+## Stack Técnico
+
+- **Lenguaje y plataforma**: Kotlin 2.0+, Android SDK (minSdk 26, targetSdk 35, compileSdk 35).
+- **UI / Frontend**: Jetpack Compose + Material 3 (con Google Fonts descargables).
+- **Cámara y captura**: AndroidX CameraX (Camera2Interop, VideoCapture, Recorder).
+- **Procesamiento de vídeo y exportación**: AndroidX Media3 Transformer + VideoCompositor / Effects.
+- **Persistencia**: Kotlinx Serialization JSON.
+- **CI / CD**: GitHub Actions (`ci.yml` para validación y `release.yml` para tags `v*`). Minificación y ofuscación con R8/ProGuard.
+
 
 ## Identidad y contacto
 
@@ -15,14 +38,6 @@
   un móvil chileno válido y no existe en los chats de wacli.
 - Otros contactos frecuentes en wacli: `i` = +56993206000 (Iván Zamorano),
   `r` = +56994480523 (Ramón Zamorano).
-
-## Proyecto actual: VidCam
-
-- Aplicación Android (Kotlin + Jetpack Compose + Material 3) para grabar y
-  editar vídeos verticales ≤ 30 s: cámara con audio, importación, música del
-  dispositivo, capas PNG/textos interactivas y exportación MP4 (H.264/AAC).
-- Especificado en OpenSpec en `openspec/changes/add-vidcam-mvp/`.
-- Versión actual: 1.0.5 release firmada y entregada (R8 + shrink).
 
 ## Forma de trabajo
 
