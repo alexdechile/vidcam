@@ -101,6 +101,53 @@ data class OverlayLayer(
     val keyframes: List<LayerKeyframe> = emptyList(),
 )
 
+/** Forma de la ventana donde se dibuja el vídeo sobre el fondo. */
+@Serializable
+enum class VideoWindowAspect {
+    /** Proporción del primer clip: ocupa el lienzo completo como antes. */
+    ORIGINAL,
+
+    /** Recorte cuadrado 1:1. */
+    CUADRADO,
+
+    /** Recorte vertical 9:16. */
+    VERTICAL,
+}
+
+/**
+ * Transform global de la ventana de vídeo dentro del lienzo.
+ *
+ * [x] e [y] son el centro normalizado (0..1, origen arriba a la izquierda),
+ * [scale] va de 0.2 a 1 (1 = mayor tamaño que cabe para la forma elegida) y
+ * [rotationDeg] son grados en sentido horario, igual que en las capas.
+ */
+@Serializable
+data class VideoWindow(
+    val aspect: VideoWindowAspect = VideoWindowAspect.ORIGINAL,
+    val x: Float = 0.5f,
+    val y: Float = 0.5f,
+    val scale: Float = 1f,
+    val rotationDeg: Float = 0f,
+) {
+    /** `true` cuando la ventana se comporta como antes de esta función. */
+    val isDefault: Boolean
+        get() = aspect == VideoWindowAspect.ORIGINAL &&
+            x == 0.5f &&
+            y == 0.5f &&
+            scale == 1f &&
+            rotationDeg == 0f
+}
+
+/** Imagen PNG usada como fondo durante el tramo `[startMs, endMs)`. */
+@Serializable
+data class BackgroundLayer(
+    val id: String,
+    val uri: String,
+    val startMs: Long = 0L,
+    val endMs: Long = MAX_DURATION_MS,
+    val label: String = "Fondo",
+)
+
 @Serializable
 data class MusicTrack(
     val id: Long,
@@ -118,6 +165,10 @@ data class Project(
     val musicStartMs: Long = 0L,
     val originalAudioMuted: Boolean = false,
     val layers: List<OverlayLayer> = emptyList(),
+    /** Fondos PNG por tramos, dibujados debajo del vídeo y de las capas. */
+    val backgrounds: List<BackgroundLayer> = emptyList(),
+    /** Transform global de la ventana de vídeo. */
+    val videoWindow: VideoWindow = VideoWindow(),
 ) {
     val totalDurationMs: Long
         get() = TimelineMath.totalDuration(clips)
@@ -125,9 +176,16 @@ data class Project(
     val isOverLimit: Boolean
         get() = totalDurationMs > MAX_DURATION_MS
 
-    /** Un proyecto sin clips, capas ni música no tiene nada que guardar. */
+    /** Un proyecto sin clips, capas, fondos ni música no tiene nada que guardar. */
     val isEmpty: Boolean
-        get() = clips.isEmpty() && layers.isEmpty() && music == null
+        get() = clips.isEmpty() && layers.isEmpty() && backgrounds.isEmpty() && music == null
+
+    /**
+     * `true` cuando hace falta componer fondo + ventana de vídeo. Sin fondos y
+     * con la ventana por defecto se usa el camino de exportación de siempre.
+     */
+    val requiresVideoComposition: Boolean
+        get() = backgrounds.isNotEmpty() || !videoWindow.isDefault
 
     fun clipStartMs(index: Int): Long =
         clips.take(index).sumOf { it.effectiveDurationMs }

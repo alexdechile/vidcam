@@ -4,6 +4,7 @@ package com.vidcam.app.editor
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -64,6 +65,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -74,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -100,6 +103,7 @@ import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.CLIP_SPEEDS
+import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
@@ -110,6 +114,9 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.VideoWindow
+import com.vidcam.app.model.VideoWindowAspect
+import com.vidcam.app.model.VideoWindowMath
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.hitTestLayers
 import com.vidcam.app.model.resolvedAt
@@ -170,6 +177,8 @@ fun EditorScreen(
     var showProjectMenu by remember { mutableStateOf(false) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
+    var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
+    var editingBackground by remember { mutableStateOf<BackgroundLayer?>(null) }
     var recordSpeed by remember { mutableStateOf(1f) }
     var recordFilter by remember { mutableStateOf(ColorFilterPreset.NINGUNO) }
     var recordWide by remember { mutableStateOf(WideLensMode.NORMAL) }
@@ -196,6 +205,10 @@ fun EditorScreen(
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let(viewModel::addPngLayer) }
+
+    val backgroundPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> uri?.let { pendingBackgroundUri = it } }
 
     fun startRecording() {
         if (recorder.isRecording) {
@@ -324,6 +337,7 @@ fun EditorScreen(
                         project = project,
                         motionRecording = motionRecording,
                         onLayerGesture = viewModel::applyLayerGesture,
+                        onWindowGesture = viewModel::updateVideoWindow,
                         onMotionAutoStop = { viewModel.setMotionRecording(false) },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -358,6 +372,11 @@ fun EditorScreen(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
                 },
+                onAddBackground = {
+                    backgroundPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
                 onAddText = { showTextDialog = true },
                 onAddSticker = { showStickerDialog = true },
                 onMusic = { showMusicSheet = true },
@@ -379,7 +398,11 @@ fun EditorScreen(
                 viewModel = viewModel,
             )
 
-            TimelineSection(project = project, viewModel = viewModel)
+            TimelineSection(
+                project = project,
+                viewModel = viewModel,
+                onEditBackground = { editingBackground = it },
+            )
         }
     }
 
@@ -403,6 +426,36 @@ fun EditorScreen(
             onPick = { path ->
                 viewModel.addPngLayer(Uri.parse(stickerAssetUri(path)))
                 showStickerDialog = false
+            },
+        )
+    }
+
+    pendingBackgroundUri?.let { uri ->
+        BackgroundSegmentDialog(
+            title = "Nuevo fondo",
+            totalMs = project.totalDurationMs,
+            initialStartMs = 0L,
+            initialEndMs = project.totalDurationMs,
+            onDismiss = { pendingBackgroundUri = null },
+            onConfirm = { startMs, endMs ->
+                viewModel.addBackground(uri, startMs, endMs)
+                pendingBackgroundUri = null
+            },
+        )
+    }
+
+    editingBackground?.let { background ->
+        BackgroundSegmentDialog(
+            title = "Editar fondo",
+            totalMs = project.totalDurationMs,
+            initialStartMs = background.startMs,
+            initialEndMs = background.endMs,
+            onDismiss = { editingBackground = null },
+            onConfirm = { startMs, endMs ->
+                viewModel.updateBackground(
+                    background.copy(startMs = startMs, endMs = endMs),
+                )
+                editingBackground = null
             },
         )
     }
@@ -557,6 +610,7 @@ private fun ControlsSection(
     onToggleRecord: () -> Unit,
     onImportVideo: () -> Unit,
     onAddPng: () -> Unit,
+    onAddBackground: () -> Unit,
     onAddText: () -> Unit,
     onAddSticker: () -> Unit,
     onMusic: () -> Unit,
@@ -618,6 +672,13 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onAddPng) { Text("PNG") }
             Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onAddBackground,
+                enabled = project.clips.isNotEmpty(),
+            ) {
+                Text("Fondo")
+            }
+            Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onAddText) { Text("Texto") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onAddSticker) { Text("Sticker") }
@@ -630,6 +691,17 @@ private fun ControlsSection(
             ) {
                 Text(if (motionRecording) "Detener grabación" else "Grabar movimiento")
             }
+        }
+
+        if (project.clips.isNotEmpty()) {
+            VideoWindowControls(
+                window = project.videoWindow,
+                onSelectAspect = { aspect ->
+                    viewModel.updateVideoWindow(project.videoWindow.copy(aspect = aspect))
+                },
+                onReset = viewModel::resetVideoWindow,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
 
         if (project.clips.isEmpty() && canRecord) {
@@ -729,7 +801,11 @@ private fun ControlsSection(
 }
 
 @Composable
-private fun TimelineSection(project: Project, viewModel: EditorViewModel) {
+private fun TimelineSection(
+    project: Project,
+    viewModel: EditorViewModel,
+    onEditBackground: (BackgroundLayer) -> Unit,
+) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -748,6 +824,18 @@ private fun TimelineSection(project: Project, viewModel: EditorViewModel) {
             } else {
                 project.clips.forEach { clip ->
                     ClipRow(clip = clip, viewModel = viewModel)
+                }
+            }
+
+            if (project.backgrounds.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = "Fondos", style = MaterialTheme.typography.labelLarge)
+                project.backgrounds.forEach { background ->
+                    BackgroundRow(
+                        background = background,
+                        onEdit = { onEditBackground(background) },
+                        onRemove = { viewModel.removeBackground(background.id) },
+                    )
                 }
             }
 
@@ -805,6 +893,134 @@ private fun TimelineSection(project: Project, viewModel: EditorViewModel) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BackgroundRow(
+    background: BackgroundLayer,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val context = LocalContext.current
+    val bitmap = remember(background.uri) {
+        LayerBitmaps.decodePng(context, background.uri)
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(32.dp)
+                    .padding(end = 8.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = background.label,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+            )
+            Text(
+                text = "${formatDuration(background.startMs)}–${formatDuration(background.endMs)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        TextButton(onClick = onEdit) { Text("Editar") }
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Default.Delete, contentDescription = "Eliminar fondo")
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSegmentDialog(
+    title: String,
+    totalMs: Long,
+    initialStartMs: Long,
+    initialEndMs: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (Long, Long) -> Unit,
+) {
+    val total = totalMs.coerceAtLeast(2L).toFloat()
+    val start = initialStartMs.coerceIn(0L, totalMs.coerceAtLeast(2L) - 1L).toFloat()
+    val end = initialEndMs.coerceIn(start.toLong() + 1L, totalMs.coerceAtLeast(2L)).toFloat()
+    var range by remember { mutableStateOf(start..end) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(
+                    text = "${formatDuration(range.start.toLong())} – " +
+                        formatDuration(range.endInclusive.toLong()),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                RangeSlider(
+                    value = range,
+                    onValueChange = { range = it },
+                    valueRange = 0f..total,
+                )
+                Text(
+                    text = "El fondo cubre todo el lienzo y queda debajo del vídeo y de las capas.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(range.start.toLong(), range.endInclusive.toLong())
+                },
+                enabled = range.endInclusive > range.start,
+            ) {
+                Text("Aceptar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
+}
+
+@Composable
+private fun VideoWindowControls(
+    window: VideoWindow,
+    onSelectAspect: (VideoWindowAspect) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Vídeo", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(8.dp))
+        FilterChip(
+            selected = window.aspect == VideoWindowAspect.ORIGINAL,
+            onClick = { onSelectAspect(VideoWindowAspect.ORIGINAL) },
+            label = { Text("Original") },
+        )
+        Spacer(Modifier.width(4.dp))
+        FilterChip(
+            selected = window.aspect == VideoWindowAspect.CUADRADO,
+            onClick = { onSelectAspect(VideoWindowAspect.CUADRADO) },
+            label = { Text("1:1") },
+        )
+        Spacer(Modifier.width(4.dp))
+        FilterChip(
+            selected = window.aspect == VideoWindowAspect.VERTICAL,
+            onClick = { onSelectAspect(VideoWindowAspect.VERTICAL) },
+            label = { Text("9:16") },
+        )
+        Spacer(Modifier.width(8.dp))
+        OutlinedButton(onClick = onReset) { Text("Centrar") }
     }
 }
 
@@ -969,6 +1185,7 @@ private fun TimelinePreview(
     project: Project,
     motionRecording: Boolean,
     onLayerGesture: (OverlayLayer, Long, Boolean) -> Unit,
+    onWindowGesture: (VideoWindow) -> Unit,
     onMotionAutoStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1142,32 +1359,90 @@ private fun TimelinePreview(
         val resolvedLayers = project.layers
             .filter { positionMs in it.startMs..it.endMs }
             .map { it.resolvedAt(positionMs) }
+        val videoWindow = project.videoWindow
+        val originalAspect = frameSize?.let {
+            it.first.toFloat() / it.second.toFloat().coerceAtLeast(1f)
+        } ?: (9f / 16f)
+        val windowAspect = VideoWindowMath.aspectRatio(videoWindow.aspect, originalAspect)
+        val (windowWidth, windowHeight) = VideoWindowMath.windowSize(
+            frameWidth = containerWidth,
+            frameHeight = containerHeight,
+            aspect = windowAspect,
+            scale = videoWindow.scale,
+        )
+        val activeBackground = VideoWindowMath.backgroundAt(project.backgrounds, positionMs)
+        val backgroundBitmap by produceState<Bitmap?>(null, activeBackground?.uri) {
+            value = withContext(Dispatchers.IO) {
+                activeBackground?.uri?.let { LayerBitmaps.decodePng(context, it) }
+            }
+        }
         val currentLayers by rememberUpdatedState(resolvedLayers)
+        val currentWindow by rememberUpdatedState(videoWindow)
         val currentPositionMs by rememberUpdatedState(positionMs)
         val currentContainerWidth by rememberUpdatedState(containerWidth)
         val currentContainerHeight by rememberUpdatedState(containerHeight)
+        val currentWindowWidth by rememberUpdatedState(windowWidth)
+        val currentWindowHeight by rememberUpdatedState(windowHeight)
         val currentOnGesture by rememberUpdatedState(onLayerGesture)
+        val currentOnWindowGesture by rememberUpdatedState(onWindowGesture)
+        val motionNow by rememberUpdatedState(motionRecording)
+        var windowSelected by remember { mutableStateOf(false) }
         // Tamaño medido de cada capa, en píxeles y sin escala, para el hit-test.
         val measuredSizes = remember { mutableMapOf<String, IntSize>() }
 
         Box(
-            modifier = Modifier.size(
-                width = with(density) { containerWidth.toDp() },
-                height = with(density) { containerHeight.toDp() },
-            ),
+            modifier = Modifier
+                .size(
+                    width = with(density) { containerWidth.toDp() },
+                    height = with(density) { containerHeight.toDp() },
+                )
+                .clipToBounds(),
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = videoPlayer
-                        useController = false
-                        // FIT y no ZOOM: el vídeo se muestra completo dentro del
-                        // fotograma, igual que lo escala Media3 al exportar.
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // El fondo va debajo de todo y se recorta para llenar el lienzo,
+            // igual que el PNG pre-renderizado de la exportación.
+            val currentBackground = backgroundBitmap
+            if (currentBackground != null) {
+                Image(
+                    bitmap = currentBackground.asImageBitmap(),
+                    contentDescription = "Fondo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            // Ventana de vídeo: tamaño según la forma y la escala, posición
+            // normalizada y giro. El PlayerView recorta con ZOOM (cover), que es
+            // lo mismo que hace `Crop` en la exportación.
+            Box(
+                modifier = Modifier
+                    .size(
+                        width = with(density) { windowWidth.toDp() },
+                        height = with(density) { windowHeight.toDp() },
+                    )
+                    .graphicsLayer {
+                        translationX = containerWidth * videoWindow.x - size.width / 2f
+                        translationY = containerHeight * videoWindow.y - size.height / 2f
+                        rotationZ = videoWindow.rotationDeg
                     }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+                    .then(
+                        if (windowSelected) {
+                            Modifier.border(2.dp, Color.Cyan)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = videoPlayer
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1196,11 +1471,125 @@ private fun TimelinePreview(
                                     containerWidth = currentContainerWidth,
                                     containerHeight = currentContainerHeight,
                                 )
+                                // La ventana de vídeo recibe el gesto solo si el
+                                // toque no cae en una capa visible.
+                                val window = currentWindow
+                                val windowHit = !motionNow &&
+                                    VideoWindowMath.hitTest(
+                                        centerX = currentContainerWidth * window.x,
+                                        centerY = currentContainerHeight * window.y,
+                                        halfWidth = currentWindowWidth / 2f,
+                                        halfHeight = currentWindowHeight / 2f,
+                                        rotationDeg = window.rotationDeg,
+                                        pointX = down.position.x,
+                                        pointY = down.position.y,
+                                    )
                                 // Si el toque no cae en ninguna capa se mantiene la
-                                // selección, para poder pellizcar fuera de ella.
+                                // selección, para poder pellizcar fuera de ella. La
+                                // ventana tiene prioridad sobre esa selección.
                                 val targetLayer = hit
-                                    ?: selectedLayerId?.let { id -> layers.firstOrNull { it.id == id } }
-                                if (targetLayer == null) continue
+                                    ?: if (!windowHit) {
+                                        selectedLayerId?.let { id ->
+                                            layers.firstOrNull { it.id == id }
+                                        }
+                                    } else {
+                                        null
+                                    }
+
+                                if (targetLayer == null && windowHit) {
+                                    selectedLayerId = null
+                                    windowSelected = true
+
+                                    var working = window
+                                    var moved = false
+                                    var emitted = false
+                                    var lastPointerCount = 0
+                                    var lastPosition = down.position
+                                    var lastDistance = 0f
+                                    var lastAngle = 0f
+
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val changes = event.changes.filter { it.pressed }
+
+                                        if (changes.size != lastPointerCount) {
+                                            lastPointerCount = changes.size
+                                            lastPosition = changes.firstOrNull()?.position
+                                                ?: down.position
+                                            lastDistance = 0f
+                                            lastAngle = 0f
+                                        }
+
+                                        when {
+                                            changes.size >= 2 -> {
+                                                val p1 = changes[0].position
+                                                val p2 = changes[1].position
+                                                val distance = (p1 - p2).getDistance()
+                                                val angle = atan2(p2.y - p1.y, p2.x - p1.x)
+                                                if (lastDistance > 0f) {
+                                                    working = working.copy(
+                                                        scale = (
+                                                            working.scale *
+                                                                (distance / lastDistance)
+                                                            ).coerceIn(
+                                                            VideoWindowMath.MIN_SCALE,
+                                                            VideoWindowMath.MAX_SCALE,
+                                                        ),
+                                                        rotationDeg = working.rotationDeg +
+                                                            Math.toDegrees(
+                                                                (angle - lastAngle).toDouble(),
+                                                            ).toFloat(),
+                                                    )
+                                                    emitted = true
+                                                    currentOnWindowGesture(working)
+                                                }
+                                                lastDistance = distance
+                                                lastAngle = angle
+                                            }
+
+                                            changes.size == 1 -> {
+                                                val change = changes.first()
+                                                if (!moved &&
+                                                    (change.position - down.position)
+                                                        .getDistance() >
+                                                    viewConfiguration.touchSlop
+                                                ) {
+                                                    moved = true
+                                                }
+                                                if (moved) {
+                                                    val delta = change.position - lastPosition
+                                                    lastPosition = change.position
+                                                    working = working.copy(
+                                                        x = (
+                                                            working.x +
+                                                                delta.x / currentContainerWidth
+                                                            ).coerceIn(0f, 1f),
+                                                        y = (
+                                                            working.y +
+                                                                delta.y / currentContainerHeight
+                                                            ).coerceIn(0f, 1f),
+                                                    )
+                                                    emitted = true
+                                                    currentOnWindowGesture(working)
+                                                }
+                                            }
+                                        }
+
+                                        changes.forEach { it.consume() }
+                                    } while (event.changes.any { it.pressed })
+
+                                    // Última muestra, para no perder el punto final.
+                                    if (emitted) currentOnWindowGesture(working)
+                                    continue
+                                }
+
+                                if (targetLayer == null) {
+                                    selectedLayerId = null
+                                    windowSelected = false
+                                    continue
+                                }
+
+                                windowSelected = false
                                 selectedLayerId = targetLayer.id
 
                                 var working: OverlayLayer? = null

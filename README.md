@@ -3,15 +3,29 @@
 Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos:
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
 capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
-rotables y animables con grabación de movimiento en el lienzo, deshacer/rehacer
-y proyectos guardados en JSON, con exportación a MP4 (H.264/AAC) con guardado en
-galería y hoja de compartir.
+rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
+pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
+9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
+(H.264/AAC) con guardado en galería y hoja de compartir.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
 `openspec/changes/add-layer-motion-recording/`,
-`openspec/changes/add-project-persistence-and-undo/` y
-`openspec/changes/add-clip-speed/`.
+`openspec/changes/add-project-persistence-and-undo/`,
+`openspec/changes/add-clip-speed/` y
+`openspec/changes/add-background-and-video-window/`.
+
+## Fondos y ventana de vídeo
+
+- **Fondo**: botón `Fondo` para elegir un PNG que cubre todo el lienzo por
+  debajo del vídeo y de las capas. Se pueden agregar varios fondos con tramos
+  propios; los huecos quedan negros y los tramos nunca se solapan.
+- **Ventana**: el vídeo se puede recortar a `1:1` o `9:16`, arrastrar, pellizcar
+  para escalar y girar con dos dedos. `Centrar` restablece posición, escala y
+  giro. Con `Original` y escala 1 ocupa el lienzo completo, como antes.
+- La vista previa y el MP4 usan la misma geometría: la exportación compone el
+  fondo y la ventana con el compositor de Media3 y mantiene el camino anterior
+  cuando el proyecto no usa estas funciones.
 
 ## Requisitos
 

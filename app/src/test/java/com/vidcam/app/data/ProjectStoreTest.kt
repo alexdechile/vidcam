@@ -2,12 +2,15 @@ package com.vidcam.app.data
 
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
+import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.VideoWindow
+import com.vidcam.app.model.VideoWindowAspect
 import com.vidcam.app.model.WideLensMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,6 +76,29 @@ class ProjectStoreTest {
                 colorArgb = 0xFF00FF00.toInt(),
                 fontSizeSp = 56f,
             ),
+        ),
+        backgrounds = listOf(
+            BackgroundLayer(
+                id = "bg-1",
+                uri = "file:///data/media/fondo-1.png",
+                startMs = 0L,
+                endMs = 4_000L,
+                label = "Fondo uno",
+            ),
+            BackgroundLayer(
+                id = "bg-2",
+                uri = "file:///data/media/fondo-2.png",
+                startMs = 4_000L,
+                endMs = 9_000L,
+                label = "Fondo dos",
+            ),
+        ),
+        videoWindow = VideoWindow(
+            aspect = VideoWindowAspect.CUADRADO,
+            x = 0.4f,
+            y = 0.6f,
+            scale = 0.7f,
+            rotationDeg = 12f,
         ),
     )
 
@@ -163,5 +189,9 @@ class ProjectStoreTest {
         assertEquals(ColorFilterPreset.NINGUNO, loaded?.colorFilter)
         assertEquals(WideLensMode.NORMAL, loaded?.wideLens)
         assertEquals(ShakeIntensity.NINGUNO, loaded?.shake)
+
+        val project = store.load("viejo")?.project
+        assertTrue(project?.backgrounds?.isEmpty() == true)
+        assertTrue(project?.videoWindow?.isDefault == true)
     }
 }

@@ -14,6 +14,7 @@ import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
+import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MAX_DURATION_MS
@@ -22,6 +23,8 @@ import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
+import com.vidcam.app.model.VideoWindow
+import com.vidcam.app.model.VideoWindowMath
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.clearAnimation
 import com.vidcam.app.model.removeKeyframeAt
@@ -442,6 +445,105 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun removeLayer(id: String) =
         update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }
+
+    // --- Fondos y ventana de vídeo -----------------------------------------
+
+    /**
+     * Agrega un PNG de fondo copiándolo al almacenamiento propio, igual que las
+     * capas, para que el proyecto guardado siga funcionando después de que
+     * caduque el permiso del selector.
+     */
+    fun addBackground(uri: Uri, startMs: Long, endMs: Long) {
+        val total = _project.value.totalDurationMs
+        if (total <= 0L) {
+            _message.value = "Agrega un vídeo antes de poner un fondo"
+            return
+        }
+        if (endMs <= startMs) {
+            _message.value = "El tramo del fondo debe durar más de cero"
+            return
+        }
+        viewModelScope.launch {
+            val stored = withContext(Dispatchers.IO) {
+                MediaProbe.copyToStorage(context, uri, "fondo", "png")
+            }
+            if (stored == null) {
+                _message.value = "No se pudo agregar la imagen de fondo"
+                return@launch
+            }
+            addBackgroundWithUri(Uri.fromFile(stored).toString(), startMs, endMs)
+        }
+    }
+
+    private fun addBackgroundWithUri(uri: String, startMs: Long, endMs: Long) {
+        val id = "bg-${System.currentTimeMillis()}"
+        update("background-add:$id") { project ->
+            val total = project.totalDurationMs
+            if (total <= 0L) return@update project
+            val background = BackgroundLayer(
+                id = id,
+                uri = uri,
+                startMs = startMs,
+                endMs = endMs,
+            )
+            project.copy(
+                backgrounds = VideoWindowMath.trimOverlaps(
+                    backgrounds = project.backgrounds,
+                    incoming = background,
+                    totalMs = total,
+                ),
+            )
+        }
+    }
+
+    fun updateBackground(background: BackgroundLayer) {
+        if (background.endMs <= background.startMs) {
+            _message.value = "El tramo del fondo debe durar más de cero"
+            return
+        }
+        update("background-edit:${background.id}") { project ->
+            val total = project.totalDurationMs
+            if (total <= 0L) return@update project
+            val others = project.backgrounds.filterNot { it.id == background.id }
+            project.copy(
+                backgrounds = VideoWindowMath.trimOverlaps(
+                    backgrounds = others,
+                    incoming = background,
+                    totalMs = total,
+                ),
+            )
+        }
+    }
+
+    fun removeBackground(id: String) =
+        update("background-remove:$id") { project ->
+            project.copy(backgrounds = project.backgrounds.filterNot { it.id == id })
+        }
+
+    /** Actualiza el transform global de la ventana dentro de los límites válidos. */
+    fun updateVideoWindow(window: VideoWindow) = update("video-window") { project ->
+        project.copy(
+            videoWindow = window.copy(
+                x = window.x.coerceIn(0f, 1f),
+                y = window.y.coerceIn(0f, 1f),
+                scale = window.scale.coerceIn(
+                    VideoWindowMath.MIN_SCALE,
+                    VideoWindowMath.MAX_SCALE,
+                ),
+            ),
+        )
+    }
+
+    fun resetVideoWindow() = update("video-window") { project ->
+        project.copy(
+            videoWindow = project.videoWindow.copy(
+                x = 0.5f,
+                y = 0.5f,
+                scale = 1f,
+                rotationDeg = 0f,
+            ),
+        )
+    }
 
     // --- Animación de capas -------------------------------------------------
 
