@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -321,14 +322,19 @@ fun EditorScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1.3f)
                     .fillMaxWidth()
                     .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
                 if (project.clips.isEmpty()) {
                     if (canRecord) {
-                        CameraPreview(recorder = recorder, modifier = Modifier.fillMaxSize())
+                        CameraCanvas(
+                            recorder = recorder,
+                            project = project,
+                            onWindowGesture = viewModel::updateVideoWindow,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     } else {
                         ImportOnlyPlaceholder(onRequestPermissions = onRequestPermissions)
                     }
@@ -344,65 +350,72 @@ fun EditorScreen(
                 }
             }
 
-            ControlsSection(
-                project = project,
-                recording = recording,
-                canRecord = canRecord,
-                canUndo = canUndo,
-                canRedo = canRedo,
-                onUndo = viewModel::undo,
-                onRedo = viewModel::redo,
-                onRequestPermissions = onRequestPermissions,
-                onToggleLens = recorder::toggleLens,
-                onToggleRecord = {
-                    if (recording) {
-                        recording = false
-                        recorder.stop()
-                    } else {
-                        startRecording()
-                    }
-                },
-                onImportVideo = {
-                    videoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
-                    )
-                },
-                onAddPng = {
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
-                onAddBackground = {
-                    backgroundPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
-                onAddText = { showTextDialog = true },
-                onAddSticker = { showStickerDialog = true },
-                onMusic = { showMusicSheet = true },
-                motionRecording = motionRecording,
-                onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
-                recordSpeed = recordSpeed,
-                onSelectSpeed = { recordSpeed = it },
-                recordFilter = recordFilter,
-                onSelectRecordFilter = { recordFilter = it },
-                recordWide = recordWide,
-                onToggleRecordWide = { recordWide = if (recordWide == WideLensMode.GRUPO) WideLensMode.NORMAL else WideLensMode.GRUPO },
-                recordShake = recordShake,
-                onSelectRecordShake = { recordShake = it },
-                cameraStabilization = cameraStabilization,
-                onToggleCameraStabilization = {
-                    cameraStabilization = !cameraStabilization
-                    recorder.setStabilization(cameraStabilization)
-                },
-                viewModel = viewModel,
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                ControlsSection(
+                    project = project,
+                    recording = recording,
+                    canRecord = canRecord,
+                    canUndo = canUndo,
+                    canRedo = canRedo,
+                    onUndo = viewModel::undo,
+                    onRedo = viewModel::redo,
+                    onRequestPermissions = onRequestPermissions,
+                    onToggleLens = recorder::toggleLens,
+                    onToggleRecord = {
+                        if (recording) {
+                            recording = false
+                            recorder.stop()
+                        } else {
+                            startRecording()
+                        }
+                    },
+                    onImportVideo = {
+                        videoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                        )
+                    },
+                    onAddPng = {
+                        imagePicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onAddBackground = {
+                        backgroundPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onAddText = { showTextDialog = true },
+                    onAddSticker = { showStickerDialog = true },
+                    onMusic = { showMusicSheet = true },
+                    motionRecording = motionRecording,
+                    onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
+                    recordSpeed = recordSpeed,
+                    onSelectSpeed = { recordSpeed = it },
+                    recordFilter = recordFilter,
+                    onSelectRecordFilter = { recordFilter = it },
+                    recordWide = recordWide,
+                    onToggleRecordWide = { recordWide = if (recordWide == WideLensMode.GRUPO) WideLensMode.NORMAL else WideLensMode.GRUPO },
+                    recordShake = recordShake,
+                    onSelectRecordShake = { recordShake = it },
+                    cameraStabilization = cameraStabilization,
+                    onToggleCameraStabilization = {
+                        cameraStabilization = !cameraStabilization
+                        recorder.setStabilization(cameraStabilization)
+                    },
+                    viewModel = viewModel,
+                )
 
-            TimelineSection(
-                project = project,
-                viewModel = viewModel,
-                onEditBackground = { editingBackground = it },
-            )
+                TimelineSection(
+                    project = project,
+                    viewModel = viewModel,
+                    onEditBackground = { editingBackground = it },
+                )
+            }
         }
     }
 
@@ -431,23 +444,31 @@ fun EditorScreen(
     }
 
     pendingBackgroundUri?.let { uri ->
-        BackgroundSegmentDialog(
-            title = "Nuevo fondo",
-            totalMs = project.totalDurationMs,
-            initialStartMs = 0L,
-            initialEndMs = project.totalDurationMs,
-            onDismiss = { pendingBackgroundUri = null },
-            onConfirm = { startMs, endMs ->
-                viewModel.addBackground(uri, startMs, endMs)
-                pendingBackgroundUri = null
-            },
-        )
+        val totalMs = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+        if (project.clips.isEmpty()) {
+            // Sin clips aún: se asigna al fondo completo inicial directamente
+            viewModel.addBackground(uri, 0L, MAX_DURATION_MS)
+            pendingBackgroundUri = null
+        } else {
+            BackgroundSegmentDialog(
+                title = "Nuevo fondo",
+                totalMs = totalMs,
+                initialStartMs = 0L,
+                initialEndMs = totalMs,
+                onDismiss = { pendingBackgroundUri = null },
+                onConfirm = { startMs, endMs ->
+                    viewModel.addBackground(uri, startMs, endMs)
+                    pendingBackgroundUri = null
+                },
+            )
+        }
     }
 
     editingBackground?.let { background ->
+        val totalMs = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
         BackgroundSegmentDialog(
             title = "Editar fondo",
-            totalMs = project.totalDurationMs,
+            totalMs = totalMs,
             initialStartMs = background.startMs,
             initialEndMs = background.endMs,
             onDismiss = { editingBackground = null },
@@ -575,6 +596,186 @@ fun EditorScreen(
 }
 
 @Composable
+private fun CameraCanvas(
+    recorder: CameraRecorder,
+    project: Project,
+    onWindowGesture: (VideoWindow) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val videoWindow = project.videoWindow
+    val activeBackground = project.backgrounds.firstOrNull()
+    val backgroundBitmap by produceState<Bitmap?>(null, activeBackground?.uri) {
+        value = withContext(Dispatchers.IO) {
+            activeBackground?.uri?.let { LayerBitmaps.decodePng(context, it) }
+        }
+    }
+
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val availableWidth = with(density) { maxWidth.toPx() }
+        val availableHeight = with(density) { maxHeight.toPx() }
+        val (containerWidth, containerHeight) = FrameGeometry.fit(
+            frameWidth = 9f,
+            frameHeight = 16f,
+            maxWidth = availableWidth,
+            maxHeight = availableHeight,
+        )
+
+        val windowAspect = VideoWindowMath.aspectRatio(videoWindow.aspect, 9f / 16f)
+        val (windowWidth, windowHeight) = VideoWindowMath.windowSize(
+            frameWidth = containerWidth,
+            frameHeight = containerHeight,
+            aspect = windowAspect,
+            scale = videoWindow.scale,
+        )
+
+        val currentWindow by rememberUpdatedState(videoWindow)
+        val currentContainerWidth by rememberUpdatedState(containerWidth)
+        val currentContainerHeight by rememberUpdatedState(containerHeight)
+        val currentWindowWidth by rememberUpdatedState(windowWidth)
+        val currentWindowHeight by rememberUpdatedState(windowHeight)
+        val currentOnWindowGesture by rememberUpdatedState(onWindowGesture)
+        var windowSelected by remember { mutableStateOf(false) }
+
+        Box(
+            modifier = Modifier
+                .size(
+                    width = with(density) { containerWidth.toDp() },
+                    height = with(density) { containerHeight.toDp() },
+                )
+                .clipToBounds(),
+        ) {
+            val bg = backgroundBitmap
+            if (bg != null) {
+                Image(
+                    bitmap = bg.asImageBitmap(),
+                    contentDescription = "Fondo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(
+                        width = with(density) { windowWidth.toDp() },
+                        height = with(density) { windowHeight.toDp() },
+                    )
+                    .graphicsLayer {
+                        translationX = containerWidth * videoWindow.x - size.width / 2f
+                        translationY = containerHeight * videoWindow.y - size.height / 2f
+                        rotationZ = videoWindow.rotationDeg
+                    }
+                    .clipToBounds()
+                    .then(
+                        if (windowSelected || !videoWindow.isDefault || project.backgrounds.isNotEmpty()) {
+                            Modifier.border(2.dp, Color.Cyan)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                CameraPreview(recorder = recorder, modifier = Modifier.fillMaxSize())
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+
+                                val window = currentWindow
+                                val windowHit = VideoWindowMath.hitTest(
+                                    centerX = currentContainerWidth * window.x,
+                                    centerY = currentContainerHeight * window.y,
+                                    halfWidth = currentWindowWidth / 2f,
+                                    halfHeight = currentWindowHeight / 2f,
+                                    rotationDeg = window.rotationDeg,
+                                    pointX = down.position.x,
+                                    pointY = down.position.y,
+                                )
+
+                                if (windowHit) {
+                                    windowSelected = true
+                                    var working = window
+                                    var moved = false
+                                    var emitted = false
+                                    var lastPointerCount = 0
+                                    var lastPosition = down.position
+                                    var lastDistance = 0f
+                                    var lastAngle = 0f
+
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val changes = event.changes.filter { it.pressed }
+
+                                        if (changes.size != lastPointerCount) {
+                                            lastPointerCount = changes.size
+                                            lastPosition = changes.firstOrNull()?.position ?: down.position
+                                            lastDistance = 0f
+                                            lastAngle = 0f
+                                        }
+
+                                        when {
+                                            changes.size >= 2 -> {
+                                                val p1 = changes[0].position
+                                                val p2 = changes[1].position
+                                                val distance = (p1 - p2).getDistance()
+                                                val angle = atan2(p2.y - p1.y, p2.x - p1.x)
+                                                if (lastDistance > 0f) {
+                                                    working = working.copy(
+                                                        scale = (working.scale * (distance / lastDistance)).coerceIn(
+                                                            VideoWindowMath.MIN_SCALE,
+                                                            VideoWindowMath.MAX_SCALE,
+                                                        ),
+                                                        rotationDeg = working.rotationDeg +
+                                                            java.lang.Math.toDegrees((angle - lastAngle).toDouble()).toFloat(),
+                                                    )
+                                                    emitted = true
+                                                    currentOnWindowGesture(working)
+                                                }
+                                                lastDistance = distance
+                                                lastAngle = angle
+                                            }
+
+                                            changes.size == 1 -> {
+                                                val change = changes.first()
+                                                if (!moved && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                                    moved = true
+                                                }
+                                                if (moved) {
+                                                    val delta = change.position - lastPosition
+                                                    lastPosition = change.position
+                                                    working = working.copy(
+                                                        x = (working.x + delta.x / currentContainerWidth).coerceIn(0f, 1f),
+                                                        y = (working.y + delta.y / currentContainerHeight).coerceIn(0f, 1f),
+                                                    )
+                                                    emitted = true
+                                                    currentOnWindowGesture(working)
+                                                }
+                                            }
+                                        }
+
+                                        changes.forEach { it.consume() }
+                                    } while (event.changes.any { it.pressed })
+
+                                    if (emitted) currentOnWindowGesture(working)
+                                } else {
+                                    windowSelected = false
+                                }
+                            }
+                        }
+                    },
+            )
+        }
+    }
+}
+
+@Composable
 private fun ImportOnlyPlaceholder(onRequestPermissions: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -674,7 +875,7 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onAddBackground,
-                enabled = project.clips.isNotEmpty(),
+                enabled = true,
             ) {
                 Text("Fondo")
             }
@@ -693,16 +894,14 @@ private fun ControlsSection(
             }
         }
 
-        if (project.clips.isNotEmpty()) {
-            VideoWindowControls(
-                window = project.videoWindow,
-                onSelectAspect = { aspect ->
-                    viewModel.updateVideoWindow(project.videoWindow.copy(aspect = aspect))
-                },
-                onReset = viewModel::resetVideoWindow,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+        VideoWindowControls(
+            window = project.videoWindow,
+            onSelectAspect = { aspect ->
+                viewModel.updateVideoWindow(project.videoWindow.copy(aspect = aspect))
+            },
+            onReset = viewModel::resetVideoWindow,
+            modifier = Modifier.padding(top = 4.dp),
+        )
 
         if (project.clips.isEmpty() && canRecord) {
             SpeedChips(
@@ -1424,8 +1623,9 @@ private fun TimelinePreview(
                         translationY = containerHeight * videoWindow.y - size.height / 2f
                         rotationZ = videoWindow.rotationDeg
                     }
+                    .clipToBounds()
                     .then(
-                        if (windowSelected) {
+                        if (windowSelected || !videoWindow.isDefault || project.backgrounds.isNotEmpty()) {
                             Modifier.border(2.dp, Color.Cyan)
                         } else {
                             Modifier

@@ -2,7 +2,11 @@
 
 ## Último Realizado
 
-- **2026-10-22**: Corrección de sobrecarga duplicada de `buildCompositorSettings` en `VideoExporter.kt` tras la incorporación de fondos PNG y ventana de vídeo móvil/girable (1:1 y 9:16) con compositor Media3 (v1.3.0). Generación de release y envío a teléfono por `telomando`.
+- **2026-10-22**: Corrección del flujo de fondos y ventana de vídeo en modo cámara y visor:
+  1. Habilitación de fondos PNG antes de grabar (duración inicial de 30 s).
+  2. Lienzo de cámara (`CameraCanvas`) con soporte para previsualizar y grabar dentro de la ventana de vídeo (1:1 o 9:16 encogida, móvil y girable con gestos) sobre el fondo.
+  3. Fijación de proporción y scroll vertical en panel de controles/timeline para evitar que el visor se comprima y desaparezca al poblarse de elementos.
+  4. Generación de nueva release y envío a teléfono por `telomando`.
 
 ## ¿Qué hace esta App?
 

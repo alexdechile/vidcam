@@ -454,11 +454,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * caduque el permiso del selector.
      */
     fun addBackground(uri: Uri, startMs: Long, endMs: Long) {
-        val total = _project.value.totalDurationMs
-        if (total <= 0L) {
-            _message.value = "Agrega un vídeo antes de poner un fondo"
-            return
-        }
         if (endMs <= startMs) {
             _message.value = "El tramo del fondo debe durar más de cero"
             return
@@ -478,8 +473,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun addBackgroundWithUri(uri: String, startMs: Long, endMs: Long) {
         val id = "bg-${System.currentTimeMillis()}"
         update("background-add:$id") { project ->
-            val total = project.totalDurationMs
-            if (total <= 0L) return@update project
+            val total = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
             val background = BackgroundLayer(
                 id = id,
                 uri = uri,
@@ -502,8 +496,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         update("background-edit:${background.id}") { project ->
-            val total = project.totalDurationMs
-            if (total <= 0L) return@update project
+            val total = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
             val others = project.backgrounds.filterNot { it.id == background.id }
             project.copy(
                 backgrounds = VideoWindowMath.trimOverlaps(
