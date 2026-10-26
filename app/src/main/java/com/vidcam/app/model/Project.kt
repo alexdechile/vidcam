@@ -95,6 +95,11 @@ data class OverlayLayer(
     val colorArgb: Int = 0xFFFFFFFF.toInt(),
     val fontSizeSp: Float = 42f,
     /**
+     * Índice de apilamiento (z-index). Mayor valor = más arriba.
+     * Se usa para ordenar en vista previa y exportación.
+     */
+    val zIndex: Int = 0,
+    /**
      * Animación de la capa. Vacío significa transform fijo, como antes de que
      * existiera la grabación de movimiento.
      */
@@ -146,6 +151,11 @@ data class BackgroundLayer(
     val startMs: Long = 0L,
     val endMs: Long = MAX_DURATION_MS,
     val label: String = "Fondo",
+    /**
+     * Índice de apilamiento (z-index). Mayor valor = más arriba.
+     * Se usa para ordenar en vista previa y exportación.
+     */
+    val zIndex: Int = 0,
 )
 
 @Serializable

@@ -415,6 +415,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun addPngLayerWithUri(uri: String) = update { project ->
+        val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
         project.copy(
             layers = project.layers + OverlayLayer(
                 id = "layer-${System.currentTimeMillis()}",
@@ -422,11 +423,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 uri = uri,
                 label = "Imagen",
                 endMs = project.totalDurationMs.coerceAtLeast(1000L),
+                zIndex = nextZ + 1,
             ),
         )
     }
 
     fun addTextLayer(text: String, fontName: String?) = update { project ->
+        val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
         project.copy(
             layers = project.layers + OverlayLayer(
                 id = "layer-${System.currentTimeMillis()}",
@@ -435,6 +438,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 fontName = fontName,
                 label = text.ifBlank { "Texto" },
                 endMs = project.totalDurationMs.coerceAtLeast(1000L),
+                zIndex = nextZ + 1,
             ),
         )
     }
@@ -445,6 +449,58 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun removeLayer(id: String) =
         update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }
+
+    /**
+     * Mueve una capa una posición hacia arriba (incrementa zIndex).
+     * Reordena todas las capas para mantener zIndex contiguos.
+     */
+    fun moveLayerUp(id: String) = update("layer-move-up:$id") { project ->
+        val layers = project.layers.toMutableList()
+        val index = layers.indexOfFirst { it.id == id }
+        if (index <= 0) return@update project // Ya está arriba
+        val layer = layers.removeAt(index)
+        layers.add(index - 1, layer)
+        // Reasignar zIndex contiguos (0..N-1)
+        project.copy(layers = layers.mapIndexed { i, l -> l.copy(zIndex = i) })
+    }
+
+    /**
+     * Mueve una capa una posición hacia abajo (decrementa zIndex).
+     * Reordena todas las capas para mantener zIndex contiguos.
+     */
+    fun moveLayerDown(id: String) = update("layer-move-down:$id") { project ->
+        val layers = project.layers.toMutableList()
+        val index = layers.indexOfFirst { it.id == id }
+        if (index < 0 || index >= layers.size - 1) return@update project // Ya está abajo
+        val layer = layers.removeAt(index)
+        layers.add(index + 1, layer)
+        // Reasignar zIndex contiguos (0..N-1)
+        project.copy(layers = layers.mapIndexed { i, l -> l.copy(zIndex = i) })
+    }
+
+    /**
+     * Mueve un fondo una posición hacia arriba (incrementa zIndex).
+     */
+    fun moveBackgroundUp(id: String) = update("bg-move-up:$id") { project ->
+        val backgrounds = project.backgrounds.toMutableList()
+        val index = backgrounds.indexOfFirst { it.id == id }
+        if (index <= 0) return@update project
+        val bg = backgrounds.removeAt(index)
+        backgrounds.add(index - 1, bg)
+        project.copy(backgrounds = backgrounds.mapIndexed { i, b -> b.copy(zIndex = i) })
+    }
+
+    /**
+     * Mueve un fondo una posición hacia abajo (decrementa zIndex).
+     */
+    fun moveBackgroundDown(id: String) = update("bg-move-down:$id") { project ->
+        val backgrounds = project.backgrounds.toMutableList()
+        val index = backgrounds.indexOfFirst { it.id == id }
+        if (index < 0 || index >= backgrounds.size - 1) return@update project
+        val bg = backgrounds.removeAt(index)
+        backgrounds.add(index + 1, bg)
+        project.copy(backgrounds = backgrounds.mapIndexed { i, b -> b.copy(zIndex = i) })
+    }
 
     // --- Fondos y ventana de vídeo -----------------------------------------
 
@@ -474,11 +530,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val id = "bg-${System.currentTimeMillis()}"
         update("background-add:$id") { project ->
             val total = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+            val nextZ = project.backgrounds.maxByOrNull { it.zIndex }?.zIndex ?: -1
             val background = BackgroundLayer(
                 id = id,
                 uri = uri,
                 startMs = startMs,
                 endMs = endMs,
+                zIndex = nextZ + 1,
             )
             project.copy(
                 backgrounds = VideoWindowMath.trimOverlaps(

@@ -152,9 +152,12 @@ class VideoExporter(private val context: Context) {
             compositionBuilder.setVideoCompositorSettings(settings)
         }
 
-        val overlays: List<TextureOverlay> = project.layers.mapNotNull {
-            LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
-        }
+        // Ordenar capas por zIndex (menor primero = más abajo) para que
+            // la exportación coincida con la vista previa.
+            val sortedLayers = project.layers.sortedBy { it.zIndex }
+            val overlays: List<TextureOverlay> = sortedLayers.mapNotNull {
+                LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
+            }
         if (overlays.isNotEmpty()) {
             val overlayEffect: Effect = OverlayEffect(overlays)
             compositionBuilder.setEffects(Effects(emptyList(), listOf(overlayEffect)))

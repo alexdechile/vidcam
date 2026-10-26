@@ -33,6 +33,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -1043,11 +1045,17 @@ private fun TimelineSection(
             if (project.backgrounds.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(text = "Fondos", style = MaterialTheme.typography.labelLarge)
-                project.backgrounds.forEach { background ->
+                // Ordenar por zIndex (menor primero = más abajo en la lista visual)
+                val sortedBackgrounds = project.backgrounds.sortedBy { it.zIndex }
+                sortedBackgrounds.forEach { background ->
                     BackgroundRow(
                         background = background,
                         onEdit = { onEditBackground(background) },
                         onRemove = { viewModel.removeBackground(background.id) },
+                        onMoveUp = { viewModel.moveBackgroundUp(background.id) },
+                        onMoveDown = { viewModel.moveBackgroundDown(background.id) },
+                        canMoveUp = background.zIndex > 0,
+                        canMoveDown = background.zIndex < sortedBackgrounds.maxByOrNull { it.zIndex }?.zIndex ?: 0,
                     )
                 }
             }
@@ -1055,7 +1063,9 @@ private fun TimelineSection(
             if (project.layers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(text = "Capas", style = MaterialTheme.typography.labelLarge)
-                project.layers.forEach { layer ->
+                // Ordenar por zIndex (menor primero = más abajo en la lista visual)
+                val sortedLayers = project.layers.sortedBy { it.zIndex }
+                sortedLayers.forEach { layer ->
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -1073,6 +1083,24 @@ private fun TimelineSection(
                                 text = "${formatDuration(layer.startMs)}–${formatDuration(layer.endMs)}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                            // Botones de reordenamiento
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { viewModel.moveLayerUp(layer.id) },
+                                    enabled = layer.zIndex > 0
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir capa")
+                                }
+                                IconButton(
+                                    onClick = { viewModel.moveLayerDown(layer.id) },
+                                    enabled = layer.zIndex < sortedLayers.maxByOrNull { it.zIndex }?.zIndex ?: 0
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar capa")
+                                }
+                            }
                             IconButton(onClick = { viewModel.removeLayer(layer.id) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Eliminar capa")
                             }
@@ -1114,6 +1142,10 @@ private fun BackgroundRow(
     background: BackgroundLayer,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
 ) {
     val context = LocalContext.current
     val bitmap = remember(background.uri) {
@@ -1143,6 +1175,24 @@ private fun BackgroundRow(
                 text = "${formatDuration(background.startMs)}–${formatDuration(background.endMs)}",
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+        // Botones de reordenamiento
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 8.dp)
+        ) {
+            IconButton(
+                onClick = onMoveUp,
+                enabled = canMoveUp
+            ) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir fondo")
+            }
+            IconButton(
+                onClick = onMoveDown,
+                enabled = canMoveDown
+            ) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar fondo")
+            }
         }
         TextButton(onClick = onEdit) { Text("Editar") }
         IconButton(onClick = onRemove) {
@@ -1572,6 +1622,8 @@ private fun TimelinePreview(
         val resolvedLayers = project.layers
             .filter { positionMs in it.startMs..it.endMs }
             .map { it.resolvedAt(positionMs) }
+            // Ordenar por zIndex para que coincida con exportación
+            .sortedBy { it.zIndex }
         val videoWindow = project.videoWindow
         val originalAspect = frameSize?.let {
             it.first.toFloat() / it.second.toFloat().coerceAtLeast(1f)

@@ -19,9 +19,12 @@ object VideoWindowMath {
     /** Duración mínima de un tramo de fondo, en milisegundos. */
     const val MIN_SEGMENT_MS = 1L
 
-    /** Fondo activo en [timeMs], o `null` si ese instante queda negro. */
+    /** Fondo activo en [timeMs], o `null` si ese instante queda negro.
+     * Prioriza el fondo con mayor zIndex cuando hay solapes temporales. */
     fun backgroundAt(backgrounds: List<BackgroundLayer>, timeMs: Long): BackgroundLayer? =
-        backgrounds.firstOrNull { timeMs >= it.startMs && timeMs < it.endMs }
+        backgrounds
+            .filter { timeMs >= it.startMs && timeMs < it.endMs }
+            .maxByOrNull { it.zIndex }
 
     /**
      * Agrega [incoming] recortando los fondos existentes para que no se
@@ -63,6 +66,9 @@ object VideoWindowMath {
      * Divide `[0, totalMs)` en tramos consecutivos, marcando con `null` los
      * instantes sin fondo. Es lo que usa la exportación para rellenar los huecos
      * con negro.
+     * 
+     * Los fondos se ordenan por zIndex para determinar cuál se muestra cuando
+     * hay solapes en el tiempo.
      */
     fun backgroundSegments(
         backgrounds: List<BackgroundLayer>,
@@ -73,6 +79,7 @@ object VideoWindowMath {
         var cursor = 0L
         backgrounds
             .sortedBy { it.startMs }
+            .sortedBy { it.zIndex }
             .forEach { background ->
                 val start = background.startMs.coerceIn(0L, totalMs)
                 val end = background.endMs.coerceIn(0L, totalMs)
