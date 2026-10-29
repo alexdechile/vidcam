@@ -77,6 +77,15 @@
 
 - **wacli.exe**: `C:\Users\alexz\AppData\Local\Programs\wacli\wacli.exe` — CLI
   de WhatsApp; con `send file --file <ruta> --to <JID>` envía APKs.
+  - Usa **un solo store**: `C:\Users\alexz\.wacli` (cuenta vinculada
+    `56226832189`). `config.yaml` está vacío (`{}`), así que `--store` es
+    implícito. No hace falta `--store` en los envíos.
+  - `~/.wacli/accounts/personal` era un store **vacío y sin autenticar** creado
+    por un `default_account` en el config; daba `not authenticated` en cada
+    envío. Se borró el 2026-10-29 y `config.yaml` quedó como `{}`.
+  - Diagnosticar con `wacli doctor` (debe decir `AUTHENTICATED true`). Si alguna
+    vez sale `false`, hay que revincular: `wacli auth` (QR) o
+    `wacli auth --phone <número>` (código de 8 dígitos).
 - **telomando** (`…\wacli\telomando` y `.sh`): script Bash que envuelve wacli:
   `telomando <archivo> [atajo|número] [mensaje]`. Atajos `i` / `r`.
 - Descargas de CI: `C:\Users\alexz\AppData\Local\Temp\opencode\vidcam-download\`.
