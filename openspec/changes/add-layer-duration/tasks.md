@@ -29,4 +29,4 @@
 
 - [x] 5.1 Revisar que `Overlays.kt` no necesita cambios (la ventana temporal ya se aplica por fotograma) y que una capa con duración corta se oculta en el MP4
 - [x] 5.2 Actualizar `README.md` con la duración en pantalla por capa y `alex.md` con el trabajo realizado
-- [ ] 5.3 Ejecutar la verificación en CI (`lint test assembleDebug assembleDebugAndroidTest`) y corregir lo que falle
+- [x] 5.3 Ejecutar la verificación en CI (`lint test assembleDebug assembleDebugAndroidTest`) y corregir lo que falle
