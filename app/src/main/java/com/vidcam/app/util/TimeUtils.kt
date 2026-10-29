@@ -15,6 +15,14 @@ fun formatDuration(ms: Long): String {
 fun formatShortTime(ms: Long): String =
     String.format(Locale.US, "%.1fs", ms.coerceAtLeast(0L) / 1000f)
 
+/**
+ * Segundos con una décima y coma decimal ("2,5 s") para los controles de
+ * duración de las capas, donde el valor se lee como una medida y no como una
+ * marca de tiempo.
+ */
+fun formatSeconds(ms: Long): String =
+    String.format(Locale.forLanguageTag("es"), "%.1f s", ms.coerceAtLeast(0L) / 1000f)
+
 /** Fecha y hora legibles para la lista de proyectos guardados. */
 fun formatDateTime(ms: Long): String =
     SimpleDateFormat("d MMM yyyy · HH:mm", Locale.forLanguageTag("es")).format(Date(ms))

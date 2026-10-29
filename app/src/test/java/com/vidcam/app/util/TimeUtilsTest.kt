@@ -25,4 +25,11 @@ class TimeUtilsTest {
         assertEquals("1.5s", formatShortTime(1_500))
         assertEquals("0.0s", formatShortTime(-100))
     }
+
+    @Test
+    fun formatsSecondsWithCommaForLayerControls() {
+        assertEquals("2,5 s", formatSeconds(2_500))
+        assertEquals("30,0 s", formatSeconds(30_000))
+        assertEquals("0,0 s", formatSeconds(-500))
+    }
 }

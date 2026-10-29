@@ -17,6 +17,7 @@ import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
+import com.vidcam.app.model.LayerTiming
 import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
@@ -417,13 +418,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun addPngLayerWithUri(uri: String) = update { project ->
         val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
         project.copy(
-            layers = project.layers + OverlayLayer(
-                id = "layer-${System.currentTimeMillis()}",
-                kind = LayerKind.PNG,
-                uri = uri,
-                label = "Imagen",
-                endMs = project.totalDurationMs.coerceAtLeast(1000L),
-                zIndex = nextZ + 1,
+            layers = project.layers + newLayerWindow(
+                project = project,
+                layer = OverlayLayer(
+                    id = "layer-${System.currentTimeMillis()}",
+                    kind = LayerKind.PNG,
+                    uri = uri,
+                    label = "Imagen",
+                    zIndex = nextZ + 1,
+                ),
             ),
         )
     }
@@ -431,21 +434,66 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun addTextLayer(text: String, fontName: String?) = update { project ->
         val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
         project.copy(
-            layers = project.layers + OverlayLayer(
-                id = "layer-${System.currentTimeMillis()}",
-                kind = LayerKind.TEXT,
-                text = text,
-                fontName = fontName,
-                label = text.ifBlank { "Texto" },
-                endMs = project.totalDurationMs.coerceAtLeast(1000L),
-                zIndex = nextZ + 1,
+            layers = project.layers + newLayerWindow(
+                project = project,
+                layer = OverlayLayer(
+                    id = "layer-${System.currentTimeMillis()}",
+                    kind = LayerKind.TEXT,
+                    text = text,
+                    fontName = fontName,
+                    label = text.ifBlank { "Texto" },
+                    zIndex = nextZ + 1,
+                ),
             ),
         )
+    }
+
+    /**
+     * Ventana inicial de una capa recién añadida: todo el vídeo actual, con los
+     * mismos límites que usan los controles de duración.
+     */
+    private fun newLayerWindow(project: Project, layer: OverlayLayer): OverlayLayer {
+        val durationMs = project.totalDurationMs.coerceAtLeast(1000L)
+        return LayerTiming.withDuration(layer, durationMs, project.totalDurationMs)
     }
 
     fun updateLayer(layer: OverlayLayer) = update("layer-edit:${layer.id}") { project ->
         project.copy(layers = project.layers.map { if (it.id == layer.id) layer else it })
     }
+
+    /**
+     * Cambia cuántos segundos permanece en pantalla la capa. La duración se
+     * acota al tiempo real del proyecto y el inicio no se mueve.
+     */
+    fun setLayerDuration(id: String, durationMs: Long) =
+        update("layer-duration:$id") { project ->
+            project.copy(
+                layers = project.layers.map {
+                    if (it.id == id) {
+                        LayerTiming.withDuration(it, durationMs, project.totalDurationMs)
+                    } else {
+                        it
+                    }
+                },
+            )
+        }
+
+    /**
+     * Cambia en qué segundo aparece la capa, conservando su duración en
+     * pantalla.
+     */
+    fun setLayerStart(id: String, startMs: Long) =
+        update("layer-start:$id") { project ->
+            project.copy(
+                layers = project.layers.map {
+                    if (it.id == id) {
+                        LayerTiming.withStart(it, startMs, project.totalDurationMs)
+                    } else {
+                        it
+                    }
+                },
+            )
+        }
 
     fun removeLayer(id: String) =
         update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }

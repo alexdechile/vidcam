@@ -33,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -113,6 +114,7 @@ import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
+import com.vidcam.app.model.LayerTiming
 import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
@@ -133,6 +135,7 @@ import com.vidcam.app.ui.rememberGoogleFontsAvailable
 import com.vidcam.app.ui.stickerAssetUri
 import com.vidcam.app.util.formatDateTime
 import com.vidcam.app.util.formatDuration
+import com.vidcam.app.util.formatSeconds
 import com.vidcam.app.util.formatShortTime
 import com.vidcam.app.util.formatSpeed
 import kotlinx.coroutines.Dispatchers
@@ -419,6 +422,7 @@ fun EditorScreen(
                     project = project,
                     viewModel = viewModel,
                     onEditBackground = { editingBackground = it },
+                    onEditLayer = { editingLayer = it },
                 )
             }
         }
@@ -489,6 +493,7 @@ fun EditorScreen(
     editingLayer?.let { layer ->
         LayerEditDialog(
             layer = layer,
+            totalMs = project.totalDurationMs,
             onDismiss = { editingLayer = null },
             onConfirm = { updated ->
                 viewModel.updateLayer(updated)
@@ -1020,6 +1025,7 @@ private fun TimelineSection(
     project: Project,
     viewModel: EditorViewModel,
     onEditBackground: (BackgroundLayer) -> Unit,
+    onEditLayer: (OverlayLayer) -> Unit,
 ) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1065,75 +1071,152 @@ private fun TimelineSection(
                 Text(text = "Capas", style = MaterialTheme.typography.labelLarge)
                 // Ordenar por zIndex (menor primero = más abajo en la lista visual)
                 val sortedLayers = project.layers.sortedBy { it.zIndex }
+                val maxZ = sortedLayers.maxByOrNull { it.zIndex }?.zIndex ?: 0
                 sortedLayers.forEach { layer ->
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (layer.kind == LayerKind.TEXT) layer.text else layer.label,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                            )
-                            if (layer.keyframes.isNotEmpty()) {
-                                Text(
-                                    text = "${layer.keyframes.size} claves",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Text(
-                                text = "${formatDuration(layer.startMs)}–${formatDuration(layer.endMs)}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            // Botones de reordenamiento
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 8.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { viewModel.moveLayerUp(layer.id) },
-                                    enabled = layer.zIndex > 0
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir capa")
-                                }
-                                IconButton(
-                                    onClick = { viewModel.moveLayerDown(layer.id) },
-                                    enabled = layer.zIndex < sortedLayers.maxByOrNull { it.zIndex }?.zIndex ?: 0
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar capa")
-                                }
-                            }
-                            IconButton(onClick = { viewModel.removeLayer(layer.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Eliminar capa")
-                            }
-                        }
-                        if (layer.keyframes.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                layer.keyframes.forEach { keyframe ->
-                                    TextButton(
-                                        onClick = {
-                                            viewModel.removeLayerKeyframe(layer.id, keyframe.timeMs)
-                                        },
-                                    ) {
-                                        Text(
-                                            text = formatShortTime(keyframe.timeMs),
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
-                                    }
-                                }
-                                TextButton(onClick = { viewModel.clearLayerAnimation(layer.id) }) {
-                                    Text(
-                                        text = "Borrar animación",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    LayerRow(
+                        layer = layer,
+                        totalMs = project.totalDurationMs,
+                        viewModel = viewModel,
+                        canMoveUp = layer.zIndex > 0,
+                        canMoveDown = layer.zIndex < maxZ,
+                        onEdit = { onEditLayer(layer) },
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * Fila de capa en la lista "Capas": nombre, acceso a la edición y los dos
+ * controles de tiempo —cuántos segundos está en pantalla y en qué segundo
+ * aparece— ajustados a la duración real del proyecto.
+ */
+@Composable
+private fun LayerRow(
+    layer: OverlayLayer,
+    totalMs: Long,
+    viewModel: EditorViewModel,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onEdit: () -> Unit,
+) {
+    val timelineMs = LayerTiming.timelineMs(totalMs)
+    val durationMs = LayerTiming.durationMs(layer, timelineMs)
+    val startMs = LayerTiming.withStart(layer, layer.startMs, timelineMs).startMs
+    val maxDurationMs = (timelineMs - startMs).coerceAtLeast(LayerTiming.MIN_DURATION_MS)
+    val maxStartMs = (timelineMs - durationMs).coerceAtLeast(0L)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (layer.kind == LayerKind.TEXT) layer.text else layer.label,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (layer.keyframes.isNotEmpty()) {
+                Text(
+                    text = "${layer.keyframes.size} claves",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Default.Edit, contentDescription = "Editar capa")
+            }
+            IconButton(onClick = { viewModel.moveLayerUp(layer.id) }, enabled = canMoveUp) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir capa")
+            }
+            IconButton(onClick = { viewModel.moveLayerDown(layer.id) }, enabled = canMoveDown) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar capa")
+            }
+            IconButton(onClick = { viewModel.removeLayer(layer.id) }) {
+                Icon(Icons.Default.Delete, contentDescription = "Eliminar capa")
+            }
+        }
+
+        // Cuántos segundos se ve la capa. Es el ajuste principal de esta fila.
+        TimeSliderRow(
+            label = "En pantalla",
+            valueMs = durationMs,
+            valueRange = LayerTiming.MIN_DURATION_MS.toFloat()..maxDurationMs.toFloat(),
+            onChange = { viewModel.setLayerDuration(layer.id, it) },
+        )
+        // En qué segundo entra, conservando la duración elegida arriba.
+        TimeSliderRow(
+            label = "Aparece en",
+            valueMs = startMs,
+            valueRange = 0f..maxStartMs.toFloat().coerceAtLeast(1f),
+            enabled = maxStartMs > 0L,
+            onChange = { viewModel.setLayerStart(layer.id, it) },
+        )
+
+        if (layer.keyframes.isNotEmpty()) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                layer.keyframes.forEach { keyframe ->
+                    TextButton(
+                        onClick = {
+                            viewModel.removeLayerKeyframe(layer.id, keyframe.timeMs)
+                        },
+                    ) {
+                        Text(
+                            text = formatShortTime(keyframe.timeMs),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                TextButton(onClick = { viewModel.clearLayerAnimation(layer.id) }) {
+                    Text(
+                        text = "Borrar animación",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Etiqueta + slider + valor en segundos, compartido por los controles de tiempo. */
+@Composable
+private fun TimeSliderRow(
+    label: String,
+    valueMs: Long,
+    valueRange: ClosedFloatingPointRange<Float>,
+    enabled: Boolean = true,
+    onChange: (Long) -> Unit,
+) {
+    val min = valueRange.start
+    val max = valueRange.endInclusive.coerceAtLeast(min)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.width(74.dp),
+        )
+        Slider(
+            value = valueMs.toFloat().coerceIn(min, max),
+            onValueChange = { onChange(it.toLong()) },
+            valueRange = min..max,
+            enabled = enabled,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 4.dp),
+        )
+        Text(
+            text = formatSeconds(valueMs),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.width(50.dp),
+        )
     }
 }
 
@@ -1620,7 +1703,7 @@ private fun TimelinePreview(
         } ?: (availableWidth to availableHeight)
 
         val resolvedLayers = project.layers
-            .filter { positionMs in it.startMs..it.endMs }
+            .filter { LayerTiming.isVisibleAt(it, positionMs) }
             .map { it.resolvedAt(positionMs) }
             // Ordenar por zIndex para que coincida con exportación
             .sortedBy { it.zIndex }
@@ -2370,16 +2453,22 @@ private fun TextLayerDialog(onDismiss: () -> Unit, onConfirm: (String, String?) 
 @Composable
 private fun LayerEditDialog(
     layer: OverlayLayer,
+    totalMs: Long,
     onDismiss: () -> Unit,
     onConfirm: (OverlayLayer) -> Unit,
 ) {
     var current by remember { mutableStateOf(layer) }
+    val timelineMs = LayerTiming.timelineMs(totalMs)
+    val durationMs = LayerTiming.durationMs(current, timelineMs)
+    val startMs = LayerTiming.withStart(current, current.startMs, timelineMs).startMs
+    val maxDurationMs = (timelineMs - startMs).coerceAtLeast(LayerTiming.MIN_DURATION_MS)
+    val maxStartMs = (timelineMs - durationMs).coerceAtLeast(0L)
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar capa") },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (current.kind == LayerKind.TEXT) {
                     OutlinedTextField(
                         value = current.text,
@@ -2388,23 +2477,22 @@ private fun LayerEditDialog(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Text(
-                    text = "Inicio: ${formatDuration(current.startMs)}",
-                    style = MaterialTheme.typography.bodySmall,
+                TimeSliderRow(
+                    label = "En pantalla",
+                    valueMs = durationMs,
+                    valueRange = LayerTiming.MIN_DURATION_MS.toFloat()..maxDurationMs.toFloat(),
+                    onChange = {
+                        current = LayerTiming.withDuration(current, it, timelineMs)
+                    },
                 )
-                Slider(
-                    value = current.startMs.toFloat(),
-                    onValueChange = { current = current.copy(startMs = it.toLong()) },
-                    valueRange = 0f..current.endMs.toFloat().coerceAtLeast(1f),
-                )
-                Text(
-                    text = "Fin: ${formatDuration(current.endMs)}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Slider(
-                    value = current.endMs.toFloat(),
-                    onValueChange = { current = current.copy(endMs = it.toLong()) },
-                    valueRange = current.startMs.toFloat().coerceAtLeast(0f)..MAX_DURATION_MS.toFloat(),
+                TimeSliderRow(
+                    label = "Aparece en",
+                    valueMs = startMs,
+                    valueRange = 0f..maxStartMs.toFloat().coerceAtLeast(1f),
+                    enabled = maxStartMs > 0L,
+                    onChange = {
+                        current = LayerTiming.withStart(current, it, timelineMs)
+                    },
                 )
                 Text(text = "Tamaño", style = MaterialTheme.typography.bodySmall)
                 Slider(
@@ -2459,7 +2547,23 @@ private fun ExportPreviewDialog(
         }
     }
 
-    val activeBackground = project.backgrounds.firstOrNull()
+    // Instante que representa el resumen: el inicio si allí ya hay capas
+    // visibles; si no, el centro de la ventana de la capa que aparece primero.
+    // Así una capa que entra a los 2 s no deja el resumen aparentemente vacío.
+    val previewTimeMs = remember(project.layers) {
+        val layers = project.layers
+        if (layers.isEmpty() || layers.any { LayerTiming.isVisibleAt(it, 0L) }) {
+            0L
+        } else {
+            val earliest = layers.minByOrNull { it.startMs } ?: return@remember 0L
+            val middle = earliest.startMs + (earliest.endMs - earliest.startMs) / 2
+            middle.coerceAtLeast(0L)
+        }
+    }
+    val visibleLayers = project.layers.filter { LayerTiming.isVisibleAt(it, previewTimeMs) }
+
+    val activeBackground = VideoWindowMath.backgroundAt(project.backgrounds, previewTimeMs)
+        ?: project.backgrounds.firstOrNull()
     val backgroundBitmap by produceState<Bitmap?>(null, activeBackground?.uri) {
         value = withContext(Dispatchers.IO) {
             activeBackground?.uri?.let { LayerBitmaps.decodePng(context, it) }
@@ -2559,16 +2663,21 @@ private fun ExportPreviewDialog(
                         )
                     }
 
-                    // Capas (texto y stickers) visibles al inicio
-                    project.layers.filter { 0L in it.startMs..it.endMs }.forEach { layer ->
-                        LayerBox(
-                            layer = layer,
-                            containerWidth = canvasWidthPx,
-                            containerHeight = canvasHeightPx,
-                            isSelected = false,
-                            onMeasured = {},
-                        )
-                    }
+                    // Capas visibles en el instante del resumen, con el mismo
+                    // orden de dibujo y el mismo transform resuelto que la
+                    // vista previa de reproducción.
+                    visibleLayers
+                        .map { it.resolvedAt(previewTimeMs) }
+                        .sortedBy { it.zIndex }
+                        .forEach { layer ->
+                            LayerBox(
+                                layer = layer,
+                                containerWidth = canvasWidthPx,
+                                containerHeight = canvasHeightPx,
+                                isSelected = false,
+                                onMeasured = {},
+                            )
+                        }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -2603,6 +2712,14 @@ private fun ExportPreviewDialog(
                         )
                         Text(
                             text = "Fondo: $bgLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (project.layers.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Capas en ${formatSeconds(previewTimeMs)}: " +
+                                "${visibleLayers.size} de ${project.layers.size}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -61,6 +62,21 @@ class EditorScreenTest {
 
         composeRule.onNodeWithText("Grabar movimiento").assertIsEnabled()
         composeRule.onNodeWithText("REC movimiento").assertDoesNotExist()
+    }
+
+    @Test
+    fun layerRowExposesDurationAndStartControls() {
+        val viewModel = viewModel()
+        setEditorContent(viewModel)
+
+        composeRule.runOnIdle {
+            viewModel.addPngLayer(Uri.parse("asset://stickers/star.png"))
+        }
+
+        // La fila de capa ofrece el tiempo en pantalla y el segundo de entrada.
+        composeRule.onNodeWithText("En pantalla").assertExists()
+        composeRule.onNodeWithText("Aparece en").assertExists()
+        composeRule.onNodeWithContentDescription("Editar capa").assertExists()
     }
 
     @Test

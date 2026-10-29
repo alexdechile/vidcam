@@ -2,6 +2,22 @@
 
 ## Último Realizado
 
+- **2026-10-29**: Duración en pantalla de las capas con slider (change OpenSpec
+  `add-layer-duration`):
+  1. Cada capa (PNG o texto) tiene en "Capas" un slider **"En pantalla"** en
+     segundos y otro **"Aparece en"** para el segundo de entrada, acotados a la
+     duración real del proyecto (no a los 30 s teóricos).
+  2. Reglas de tiempo centralizadas en `model/LayerTiming.kt` (mínimo 0,3 s,
+     máximo = lo que queda de vídeo) y usadas por la lista, el diálogo y la vista
+     previa; con tests unitarios.
+  3. Se revivió `LayerEditDialog`, que era código muerto (`editingLayer` nunca se
+     asignaba): ahora hay botón "Editar capa" con los mismos sliders de tiempo
+     más tamaño, posición y fuente.
+  4. La vista previa de exportación elige un instante donde haya capas visibles e
+     informa cuántas se verán, en vez de asumir siempre t=0.
+  5. La exportación no necesitó cambios: `LayerBitmapOverlay` ya aplica la ventana
+     temporal por fotograma.
+
 - **2026-10-22**: Vista previa de exportación con imagen fija (Opción A):
   1. Diálogo modal `ExportPreviewDialog` al presionar "Exportar", que extrae un fotograma del clip con `MediaMetadataRetriever` y lo renderiza con el fondo PNG, ventana configurada (aspecto, escala, traslación, rotación), filtro de color Compose (`composeColorFilter`), lente ancho y capas superpuestas.
   2. Resumen visual previo con duración, filtro, tipo de ventana y fondo antes de iniciar el render final.

@@ -103,6 +103,14 @@ git push origin v1.0.0
   la capa, y un toque selecciona la capa bajo el dedo, que se resalta con un
   borde de selección. La posición, escala y rotación se guardan normalizadas en
   el modelo y se replican en la exportación.
+- **Duración en pantalla por capa**: cada capa de la lista "Capas" tiene dos
+  controles en segundos —"En pantalla", que fija cuántos segundos se ve, y
+  "Aparece en", que fija en qué segundo entra conservando esa duración—. Los
+  valores se acotan a la duración real del proyecto, así que una capa nunca puede
+  durar ni empezar más allá del final del vídeo. La vista previa responde al
+  instante y la exportación aplica la misma ventana fotograma a fotograma, de modo
+  que un sticker puede durar 3 s de un vídeo de 20 s. El botón de edición de la
+  fila abre además tamaño, posición y fuente.
 - **Grabación de movimiento**: con el botón "Grabar movimiento" el vídeo se
   reproduce desde el inicio y los gestos que el usuario aplica sobre una capa se
   registran como fotogramas clave en el tiempo en que ocurren. La vista previa
