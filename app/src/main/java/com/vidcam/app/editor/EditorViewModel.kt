@@ -32,6 +32,9 @@ import com.vidcam.app.model.removeKeyframeAt
 import com.vidcam.app.model.seedKeyframesAt
 import com.vidcam.app.model.shouldSampleKeyframe
 import com.vidcam.app.model.upsertKeyframe
+import com.vidcam.app.share.SharedFile
+import com.vidcam.app.share.SharedKind
+import com.vidcam.app.share.SharedKinds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -248,23 +251,30 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun importVideo(uri: Uri) {
-        viewModelScope.launch {
-            val stored = withContext(Dispatchers.IO) {
-                MediaProbe.copyToStorage(context, uri, "clip")
-            }
-            if (stored == null) {
-                _message.value = "No se pudo importar el vídeo"
-                return@launch
-            }
-            val duration = withContext(Dispatchers.IO) {
-                MediaProbe.durationMs(context, Uri.fromFile(stored))
-            }
-            if (duration <= 0L) {
-                _message.value = "No se pudo leer el vídeo importado"
-                return@launch
-            }
-            addClip(Uri.fromFile(stored).toString(), duration)
+        viewModelScope.launch { importVideoInternal(uri) }
+    }
+
+    /**
+     * Copia [uri] al almacenamiento propio y la agrega como clip. Devuelve
+     * `true` cuando el clip entró a la línea de tiempo.
+     */
+    private suspend fun importVideoInternal(uri: Uri): Boolean {
+        val stored = withContext(Dispatchers.IO) {
+            MediaProbe.copyToStorage(context, uri, "clip")
         }
+        if (stored == null) {
+            _message.value = "No se pudo importar el vídeo"
+            return false
+        }
+        val duration = withContext(Dispatchers.IO) {
+            MediaProbe.durationMs(context, Uri.fromFile(stored))
+        }
+        if (duration <= 0L) {
+            stored.delete()
+            _message.value = "No se pudo leer el vídeo importado"
+            return false
+        }
+        return addClip(Uri.fromFile(stored).toString(), duration)
     }
 
     private fun addClip(
@@ -274,11 +284,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
         wideLens: WideLensMode = WideLensMode.NORMAL,
         shake: ShakeIntensity = ShakeIntensity.NINGUNO,
-    ) {
+    ): Boolean {
         val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
         if (remaining <= 0L) {
             _message.value = "Límite de 30 s alcanzado"
-            return
+            return false
         }
         val clip = VideoClip(
             id = "clip-${System.currentTimeMillis()}",
@@ -291,6 +301,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
         val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
         update { it.copy(clips = it.clips + trimmed) }
+        return true
     }
 
     fun removeClip(id: String) =
@@ -364,6 +375,73 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    // --- Archivos compartidos desde otras apps ------------------------------
+
+    /**
+     * Incorpora lo que otra aplicación compartió con VidCam: los vídeos entran
+     * como clips, las imágenes como capas PNG y el primer audio como música del
+     * proyecto (el modelo tiene una sola pista, así que los audios siguientes
+     * se informan como omitidos). Todo se copia antes al almacenamiento propio,
+     * porque el permiso de lectura del remitente caduca con la actividad.
+     *
+     * Cada incorporación pasa por `update`, así que entra al historial y se
+     * revierte con "Deshacer". Se publica un solo mensaje con el resultado,
+     * conservando el motivo concreto cuando no se pudo agregar nada.
+     */
+    fun importShared(files: List<SharedFile>) {
+        if (files.isEmpty()) return
+        viewModelScope.launch {
+            val previousMessage = _message.value
+            var videos = 0
+            var images = 0
+            var audios = 0
+            var omitted = 0
+            for (file in files) {
+                when (file.kind) {
+                    SharedKind.VIDEO ->
+                        if (importVideoInternal(file.uri)) videos++ else omitted++
+
+                    SharedKind.IMAGE -> {
+                        val extension = SharedKinds.extensionFor(
+                            file.mimeType,
+                            file.displayName,
+                            file.kind,
+                        )
+                        if (addPngLayerInternal(file.uri, extension)) images++ else omitted++
+                    }
+
+                    SharedKind.AUDIO ->
+                        if (audios == 0 && setSharedMusic(file)) audios++ else omitted++
+
+                    SharedKind.UNKNOWN -> omitted++
+                }
+            }
+            val added = videos + images + audios
+            _message.value = when {
+                added > 0 -> sharedSummary(videos, images, audios, omitted)
+                _message.value == previousMessage -> "No se pudo agregar lo que compartiste"
+                else -> _message.value
+            }
+        }
+    }
+
+    /** Aviso único del resultado: qué entró y cuántos archivos quedaron fuera. */
+    private fun sharedSummary(videos: Int, images: Int, audios: Int, omitted: Int): String {
+        val parts = buildList {
+            if (videos > 0) add(if (videos == 1) "1 vídeo" else "$videos vídeos")
+            if (images > 0) add(if (images == 1) "1 imagen" else "$images imágenes")
+            if (audios > 0) {
+                add(if (audios == 1) "1 pista de música" else "$audios pistas de música")
+            }
+        }
+        val listed = parts.joinToString(", ")
+        return if (omitted > 0) {
+            "Desde otra app: $listed · $omitted sin agregar"
+        } else {
+            "Desde otra app: $listed"
+        }
+    }
+
     // --- Música ------------------------------------------------------------
 
     fun loadMusic(onLoaded: (List<MusicTrack>) -> Unit) {
@@ -375,6 +453,47 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setMusic(track: MusicTrack) =
         update { it.copy(music = track, musicEnabled = true, musicStartMs = 0L) }
+
+    /**
+     * Copia un audio compartido desde otra app y lo deja como música del
+     * proyecto. Devuelve `true` si la pista quedó seleccionada.
+     */
+    private suspend fun setSharedMusic(file: SharedFile): Boolean {
+        val extension = SharedKinds.extensionFor(file.mimeType, file.displayName, file.kind)
+        val stored = withContext(Dispatchers.IO) {
+            MediaProbe.copyToStorage(context, file.uri, "musica", extension)
+        }
+        if (stored == null) {
+            _message.value = "No se pudo agregar la música compartida"
+            return false
+        }
+        val duration = withContext(Dispatchers.IO) {
+            MediaProbe.durationMs(context, Uri.fromFile(stored))
+        }
+        if (duration <= 0L) {
+            stored.delete()
+            _message.value = "No se pudo leer la música compartida"
+            return false
+        }
+        val title = file.displayName
+            ?.substringBeforeLast('.')
+            ?.takeIf { it.isNotBlank() }
+            ?: "Música compartida"
+        update {
+            it.copy(
+                music = MusicTrack(
+                    id = System.currentTimeMillis(),
+                    uri = Uri.fromFile(stored).toString(),
+                    title = title,
+                    artist = "Compartida",
+                    durationMs = duration,
+                ),
+                musicEnabled = true,
+                musicStartMs = 0L,
+            )
+        }
+        return true
+    }
 
     fun clearMusic() =
         update { it.copy(music = null, musicEnabled = false, musicStartMs = 0L) }
@@ -399,20 +518,27 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * selector.
      */
     fun addPngLayer(uri: Uri) {
+        viewModelScope.launch { addPngLayerInternal(uri) }
+    }
+
+    /**
+     * Copia [uri] al almacenamiento propio y la agrega como capa PNG. Devuelve
+     * `true` si la capa entró al proyecto.
+     */
+    private suspend fun addPngLayerInternal(uri: Uri, extension: String = "png"): Boolean {
         if (uri.scheme == "asset") {
             addPngLayerWithUri(uri.toString())
-            return
+            return true
         }
-        viewModelScope.launch {
-            val stored = withContext(Dispatchers.IO) {
-                MediaProbe.copyToStorage(context, uri, "png", "png")
-            }
-            if (stored == null) {
-                _message.value = "No se pudo agregar la imagen"
-                return@launch
-            }
-            addPngLayerWithUri(Uri.fromFile(stored).toString())
+        val stored = withContext(Dispatchers.IO) {
+            MediaProbe.copyToStorage(context, uri, "png", extension)
         }
+        if (stored == null) {
+            _message.value = "No se pudo agregar la imagen"
+            return false
+        }
+        addPngLayerWithUri(Uri.fromFile(stored).toString())
+        return true
     }
 
     private fun addPngLayerWithUri(uri: String) = update { project ->

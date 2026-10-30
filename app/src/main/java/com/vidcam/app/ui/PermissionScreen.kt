@@ -17,7 +17,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun PermissionScreen(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
+fun PermissionScreen(
+    onRequest: () -> Unit,
+    onOpenSettings: () -> Unit,
+    /** Archivos compartidos desde otra app esperando a que haya permisos. */
+    pendingSharedFiles: Int = 0,
+) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -42,6 +47,20 @@ fun PermissionScreen(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 24.dp, bottom = 24.dp),
             )
+            if (pendingSharedFiles > 0) {
+                Text(
+                    text = if (pendingSharedFiles == 1) {
+                        "Tenemos 1 archivo compartido esperando: concede los permisos " +
+                            "para abrirlo en el editor."
+                    } else {
+                        "Tenemos $pendingSharedFiles archivos compartidos esperando: " +
+                            "concede los permisos para abrirlos en el editor."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 24.dp),
+                )
+            }
             Button(
                 onClick = onRequest,
                 modifier = Modifier.fillMaxWidth(),

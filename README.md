@@ -6,14 +6,16 @@ capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
 rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
 pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
-(H.264/AAC) con guardado en galería y hoja de compartir.
+(H.264/AAC) con guardado en galería y hoja de compartir, y recepción de vídeos,
+imágenes y música compartidos desde otras apps.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
 `openspec/changes/add-layer-motion-recording/`,
 `openspec/changes/add-project-persistence-and-undo/`,
-`openspec/changes/add-clip-speed/` y
-`openspec/changes/add-background-and-video-window/`.
+`openspec/changes/add-clip-speed/`,
+`openspec/changes/add-background-and-video-window/` y
+`openspec/changes/add-shared-file-intake/`.
 
 ## Fondos y ventana de vídeo
 
@@ -150,6 +152,16 @@ git push origin v1.0.0
   MP4 en la galería, la app lo abre en el visor de vídeo del sistema mediante
   `ACTION_VIEW`. Si ninguna aplicación puede manejarlo, el vídeo queda guardado
   igualmente y solo se muestra el aviso.
+- **Archivos compartidos desde otras apps**: VidCam aparece en la hoja de
+  compartir de Android (y en "Abrir con") para vídeo, imagen y audio. Un vídeo
+  compartido entra como clip de la línea de tiempo (con el límite de 30 s y el
+  recorte automático de siempre), una imagen entra como capa PNG y un audio pasa
+  a ser la música del proyecto. Los archivos se copian a `filesDir/media` antes
+  de usarse, así que un proyecto guardado sigue funcionando cuando caduca el
+  permiso del remitente. Si VidCam ya está abierta, el material se agrega al
+  proyecto en curso sin abrir otra copia de la app —y se puede deshacer—; si aún
+  no hay permisos, la pantalla de permisos avisa que hay archivos esperando y los
+  incorpora al concederlos.
 - **Música**: el selector lista la música del dispositivo y, debajo, enlaces a
   fuentes de música gratis (YouTube Audio Library, Pixabay, Free Music Archive,
   ccMixter y Musopen) con un botón "Actualizar" que vuelve a leer `MediaStore`.
@@ -162,6 +174,8 @@ git push origin v1.0.0
 - `app/src/main/java/com/vidcam/app/data`: persistencia de proyectos (JSON por proyecto).
 - `app/src/main/java/com/vidcam/app/capture`: grabación con CameraX.
 - `app/src/main/java/com/vidcam/app/media`: importación y biblioteca de música.
+- `app/src/main/java/com/vidcam/app/share`: recepción y clasificación de archivos
+  compartidos desde otras apps.
 - `app/src/main/java/com/vidcam/app/editor`: ViewModel y pantalla del editor.
 - `app/src/main/java/com/vidcam/app/export`: exportación con Media3, overlays, guardado y compartir.
 - `app/src/main/java/com/vidcam/app/ui`: arranque, permisos, fuentes y tema.

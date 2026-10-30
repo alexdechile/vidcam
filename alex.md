@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-10-30**: Recepción de archivos compartidos desde otras apps (v1.4.0):
+  1. `MainActivity` con `singleTop` y filtros `SEND`, `SEND_MULTIPLE` y `VIEW`; los archivos que llegan se clasifican por MIME y, si falta, por extensión (`SharedKinds`/`SharedMedia`).
+  2. Vídeos entran como clips, imágenes como capas PNG y el primer audio como música del proyecto; todo se copia a `filesDir/media` y se puede deshacer.
+  3. Los archivos pendientes esperan en la pantalla de permisos y se incorporan al concederlos; un solo aviso resume el resultado.
+  4. Documentado en OpenSpec (`add-shared-file-intake`), README y tests unitarios de clasificación.
+
 - **2026-10-29**: Duración en pantalla de las capas con slider (change OpenSpec
   `add-layer-duration`):
   1. Cada capa (PNG o texto) tiene en "Capas" un slider **"En pantalla"** en

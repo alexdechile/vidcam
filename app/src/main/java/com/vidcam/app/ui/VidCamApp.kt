@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -18,12 +19,22 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vidcam.app.editor.EditorScreen
 import com.vidcam.app.editor.EditorViewModel
 import com.vidcam.app.permissions.Permissions
+import com.vidcam.app.share.SharedFile
 
 @Composable
-fun VidCamApp() {
+fun VidCamApp(
+    /**
+     * Archivos que otra app compartió con VidCam y que todavía no se
+     * incorporaron al proyecto (ver `MainActivity`).
+     */
+    sharedFiles: List<SharedFile> = emptyList(),
+    /** Se llama cuando [sharedFiles] ya se entregó al editor. */
+    onSharedFilesConsumed: () -> Unit = {},
+) {
     val context = LocalContext.current
     var mediaGranted by remember { mutableStateOf(Permissions.mediaGranted(context)) }
     var canRecord by remember { mutableStateOf(Permissions.recordingGranted(context)) }
+    val currentOnConsumed by rememberUpdatedState(onSharedFilesConsumed)
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -46,6 +57,15 @@ fun VidCamApp() {
 
     if (mediaGranted) {
         val editorViewModel: EditorViewModel = viewModel()
+        // Los archivos compartidos se entregan al editor cuando existe; si la
+        // app estaba en la pantalla de permisos, este efecto se dispara igual
+        // en cuanto se conceden.
+        LaunchedEffect(sharedFiles) {
+            if (sharedFiles.isNotEmpty()) {
+                editorViewModel.importShared(sharedFiles)
+                currentOnConsumed()
+            }
+        }
         EditorScreen(
             viewModel = editorViewModel,
             canRecord = canRecord,
@@ -55,6 +75,7 @@ fun VidCamApp() {
         )
     } else {
         PermissionScreen(
+            pendingSharedFiles = sharedFiles.size,
             onRequest = { launcher.launch(Permissions.essential.toTypedArray()) },
             onOpenSettings = {
                 val intent = Intent(
