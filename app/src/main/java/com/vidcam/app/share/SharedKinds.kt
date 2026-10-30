@@ -94,7 +94,9 @@ object SharedKinds {
 
     /** Extensión en minúsculas del nombre visible, sin el punto; `""` si no hay. */
     fun extensionOf(displayName: String?): String {
-        val name = displayName?.substringAfterLast('/', "")?.trim().orEmpty()
+        // Sin `missingDelimiterValue` explícito: si no hay carpeta, el nombre
+        // visible completo es el que se analiza.
+        val name = displayName?.substringAfterLast('/')?.trim().orEmpty()
         val dot = name.lastIndexOf('.')
         if (dot <= 0 || dot == name.lastIndex) return ""
         return name.substring(dot + 1).lowercase()

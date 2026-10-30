@@ -396,7 +396,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             var images = 0
             var audios = 0
             var omitted = 0
-            for (file in files) {
+            // Los vídeos entran primero: la duración del proyecto que ven las
+            // capas y la música es la definitiva, no la de un timeline vacío.
+            for (file in files.sortedBy { kindOrder(it.kind) }) {
                 when (file.kind) {
                     SharedKind.VIDEO ->
                         if (importVideoInternal(file.uri)) videos++ else omitted++
@@ -423,6 +425,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 else -> _message.value
             }
         }
+    }
+
+    /** Orden de incorporación: primero los clips, después capas y música. */
+    private fun kindOrder(kind: SharedKind): Int = when (kind) {
+        SharedKind.VIDEO -> 0
+        SharedKind.IMAGE -> 1
+        SharedKind.AUDIO -> 2
+        SharedKind.UNKNOWN -> 3
     }
 
     /** Aviso único del resultado: qué entró y cuántos archivos quedaron fuera. */
