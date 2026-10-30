@@ -45,6 +45,11 @@ import kotlin.math.roundToInt
  * original, se usa el compositor multi-entrada de Media3: los clips van primero
  * (capa superior) y los fondos después (capa inferior), y las capas PNG/texto se
  * siguen aplicando como overlay a nivel de composición.
+ *
+ * Un proyecto sin clips también se exporta: la secuencia de imágenes preparadas
+ * (los fondos o un lienzo negro) hace de pista de vídeo durante
+ * [Project.outputDurationMs], con las capas y la música por encima. Así se
+ * pueden hacer vídeos solo con PNG.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class VideoExporter(private val context: Context) {
@@ -87,13 +92,19 @@ class VideoExporter(private val context: Context) {
     }
 
     fun export(project: Project, callback: Callback) {
-        if (project.clips.isEmpty()) {
-            callback.onError("Añade al menos un vídeo a la línea de tiempo")
+        if (!project.canExport) {
+            callback.onError("Añade un vídeo, un fondo o una capa para exportar")
+            return
+        }
+        if (project.outputDurationMs <= 0L) {
+            callback.onError("El proyecto no tiene duración")
             return
         }
 
         val token = generation
-        if (!project.requiresVideoComposition) {
+        // Sin clips hace falta igualmente una imagen base que haga de vídeo,
+        // aunque el proyecto no tenga fondos (se usa un lienzo negro).
+        if (project.clips.isNotEmpty() && !project.requiresVideoComposition) {
             startExport(
                 project = project,
                 frameSize = FrameGeometry.frameSize(context, project),
@@ -143,7 +154,7 @@ class VideoExporter(private val context: Context) {
         )
         val compositionBuilder = Composition.Builder(sequences)
 
-        if (prepared != null) {
+        if (prepared != null && project.clips.isNotEmpty()) {
             val settings = buildCompositorSettings(
                 project = project,
                 videoWidth = videoWidth,
@@ -233,7 +244,7 @@ class VideoExporter(private val context: Context) {
             .apply { mkdirs() }
         val segments = VideoWindowMath.backgroundSegments(
             backgrounds = project.backgrounds,
-            totalMs = project.totalDurationMs,
+            totalMs = project.outputDurationMs,
         )
         val backdrops = mutableListOf<PreparedBackdrop>()
         var blackFile: File? = null
@@ -405,10 +416,12 @@ class VideoExporter(private val context: Context) {
         }
 
         // La entrada primaria (índice 0) se dibuja encima: los clips van primero
-        // y la secuencia de fondos después.
-        val sequences = mutableListOf(
-            EditedMediaItemSequence.Builder(videoItems).build(),
-        )
+        // y la secuencia de fondos después. Sin clips, el lienzo preparado es la
+        // única pista de vídeo.
+        val sequences = mutableListOf<EditedMediaItemSequence>()
+        if (project.clips.isNotEmpty()) {
+            sequences += EditedMediaItemSequence.Builder(videoItems).build()
+        }
 
         if (prepared != null) {
             val backdropItems = prepared.backdrops.map { backdrop ->

@@ -4,6 +4,7 @@ package com.vidcam.app.editor
 
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -107,6 +108,7 @@ import com.vidcam.app.data.SavedProject
 import com.vidcam.app.effect.*
 import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
+import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.CLIP_SPEEDS
 import com.vidcam.app.model.BackgroundLayer
@@ -115,7 +117,7 @@ import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.LayerTiming
-import com.vidcam.app.model.MAX_DURATION_MS
+import com.vidcam.app.model.TARGET_DURATIONS_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
@@ -224,6 +226,16 @@ fun EditorScreen(
             recorder.stop()
             return
         }
+        // La grabación se detiene sola en la duración fijada de antemano, sin
+        // pasarse nunca de lo que queda libre del proyecto de 30 s.
+        val limitMs = TimelineMath.recordingLimitMs(
+            targetMs = project.targetDurationMs,
+            usedMs = project.totalDurationMs,
+        )
+        if (limitMs <= 0L) {
+            scope.launch { snackbarHostState.showSnackbar("Límite de 30 s alcanzado") }
+            return
+        }
         val file = File(MediaProbe.capturesDir(context), "rec-${System.currentTimeMillis()}.mp4")
         recording = true
         recorder.start(file) { recorded, success ->
@@ -236,7 +248,7 @@ fun EditorScreen(
             }
         }
         scope.launch {
-            delay(MAX_DURATION_MS)
+            delay(limitMs)
             if (recorder.isRecording) recorder.stop()
         }
     }
@@ -314,7 +326,7 @@ fun EditorScreen(
                     }
                     TextButton(
                         onClick = { showExportPreviewDialog = true },
-                        enabled = !exporting && project.clips.isNotEmpty(),
+                        enabled = !exporting && project.canExport,
                     ) {
                         Text("Exportar")
                     }
@@ -335,7 +347,7 @@ fun EditorScreen(
                     .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
-                if (project.clips.isEmpty()) {
+                if (project.clips.isEmpty() && !project.hasStillContent) {
                     if (canRecord) {
                         CameraCanvas(
                             recorder = recorder,
@@ -415,6 +427,7 @@ fun EditorScreen(
                         cameraStabilization = !cameraStabilization
                         recorder.setStabilization(cameraStabilization)
                     },
+                    onSelectTargetDuration = viewModel::setTargetDuration,
                     viewModel = viewModel,
                 )
 
@@ -453,10 +466,10 @@ fun EditorScreen(
     }
 
     pendingBackgroundUri?.let { uri ->
-        val totalMs = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+        val totalMs = project.outputDurationMs
         if (project.clips.isEmpty()) {
-            // Sin clips aún: se asigna al fondo completo inicial directamente
-            viewModel.addBackground(uri, 0L, MAX_DURATION_MS)
+            // Sin clips: el fondo cubre todo el vídeo de imágenes directamente.
+            viewModel.addBackground(uri, 0L, totalMs)
             pendingBackgroundUri = null
         } else {
             BackgroundSegmentDialog(
@@ -474,7 +487,7 @@ fun EditorScreen(
     }
 
     editingBackground?.let { background ->
-        val totalMs = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+        val totalMs = project.outputDurationMs
         BackgroundSegmentDialog(
             title = "Editar fondo",
             totalMs = totalMs,
@@ -493,7 +506,7 @@ fun EditorScreen(
     editingLayer?.let { layer ->
         LayerEditDialog(
             layer = layer,
-            totalMs = project.totalDurationMs,
+            totalMs = project.outputDurationMs,
             onDismiss = { editingLayer = null },
             onConfirm = { updated ->
                 viewModel.updateLayer(updated)
@@ -848,8 +861,23 @@ private fun ControlsSection(
     onSelectRecordShake: (ShakeIntensity) -> Unit,
     cameraStabilization: Boolean,
     onToggleCameraStabilization: () -> Unit,
+    onSelectTargetDuration: (Long) -> Unit,
     viewModel: EditorViewModel,
 ) {
+    // Cronómetro de la grabación: muestra cuánto falta para la parada automática.
+    var elapsedMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(recording) {
+        if (!recording) {
+            elapsedMs = 0L
+            return@LaunchedEffect
+        }
+        val startedAt = SystemClock.elapsedRealtime()
+        while (true) {
+            elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            delay(200L)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -909,7 +937,7 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onToggleMotion,
-                enabled = project.layers.isNotEmpty(),
+                enabled = project.layers.isNotEmpty() && project.clips.isNotEmpty(),
             ) {
                 Text(if (motionRecording) "Detener grabación" else "Grabar movimiento")
             }
@@ -923,6 +951,41 @@ private fun ControlsSection(
             onReset = viewModel::resetVideoWindow,
             modifier = Modifier.padding(top = 4.dp),
         )
+
+        if (project.clips.isEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+            ) {
+                Text("Duración", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(8.dp))
+                TARGET_DURATIONS_MS.forEach { durationMs ->
+                    FilterChip(
+                        selected = project.targetDurationMs == durationMs,
+                        onClick = { onSelectTargetDuration(durationMs) },
+                        enabled = !recording,
+                        label = { Text("${durationMs / 1000} s") },
+                        modifier = Modifier.padding(end = 4.dp),
+                    )
+                }
+            }
+            if (recording) {
+                Text(
+                    text = "Grabando ${formatShortTime(elapsedMs)} de " +
+                        formatShortTime(
+                            TimelineMath.recordingLimitMs(
+                                targetMs = project.targetDurationMs,
+                                usedMs = project.totalDurationMs,
+                            ),
+                        ),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
 
         if (project.clips.isEmpty() && canRecord) {
             SpeedChips(
@@ -1034,12 +1097,17 @@ private fun TimelineSection(
                 .padding(12.dp),
         ) {
             Text(
-                text = "Línea de tiempo · ${formatDuration(project.totalDurationMs)} / 0:30",
+                text = "Línea de tiempo · ${formatDuration(project.outputDurationMs)} / 0:30",
                 style = MaterialTheme.typography.labelLarge,
             )
             if (project.clips.isEmpty()) {
                 Text(
-                    text = "Graba o importa un vídeo para empezar",
+                    text = if (project.hasStillContent) {
+                        "Vídeo solo con imágenes: dura ${formatDuration(project.outputDurationMs)}. " +
+                            "Cambia la duración en \"Duración\"."
+                    } else {
+                        "Graba o importa un vídeo para empezar"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
@@ -1075,7 +1143,7 @@ private fun TimelineSection(
                 sortedLayers.forEach { layer ->
                     LayerRow(
                         layer = layer,
-                        totalMs = project.totalDurationMs,
+                        totalMs = project.outputDurationMs,
                         viewModel = viewModel,
                         canMoveUp = layer.zIndex > 0,
                         canMoveDown = layer.zIndex < maxZ,
@@ -1546,6 +1614,8 @@ private fun TimelinePreview(
         ExoPlayer.Builder(context).build().apply { playWhenReady = true }
     }
     val clipsState = rememberUpdatedState(project.clips)
+    val outputDurationState = rememberUpdatedState(project.outputDurationMs)
+    val hasClips = project.clips.isNotEmpty()
     var positionMs by remember { mutableStateOf(0L) }
     var selectedLayerId by remember { mutableStateOf<String?>(null) }
 
@@ -1561,9 +1631,16 @@ private fun TimelinePreview(
                 )
                 .build()
         }
-        videoPlayer.setMediaItems(items)
-        videoPlayer.prepare()
-        videoPlayer.play()
+        if (items.isEmpty()) {
+            // Proyecto solo con PNG: no hay pista de vídeo, la vista previa la
+            // anima un contador de tiempo.
+            videoPlayer.stop()
+            videoPlayer.clearMediaItems()
+        } else {
+            videoPlayer.setMediaItems(items)
+            videoPlayer.prepare()
+            videoPlayer.play()
+        }
     }
 
     LaunchedEffect(
@@ -1571,11 +1648,12 @@ private fun TimelinePreview(
         project.musicEnabled,
         project.musicStartMs,
         project.originalAudioMuted,
-        project.totalDurationMs,
+        project.outputDurationMs,
     ) {
+        val totalMs = project.outputDurationMs
         videoPlayer.volume = if (project.originalAudioMuted) 0f else 1f
         val music = project.music
-        if (music == null || !project.musicEnabled || project.totalDurationMs <= 0L) {
+        if (music == null || !project.musicEnabled || totalMs <= 0L) {
             musicPlayer.stop()
             musicPlayer.clearMediaItems()
         } else {
@@ -1583,7 +1661,7 @@ private fun TimelinePreview(
                 0L,
                 (music.durationMs - 1L).coerceAtLeast(0L),
             )
-            val end = (start + project.totalDurationMs).coerceAtMost(music.durationMs)
+            val end = (start + totalMs).coerceAtMost(music.durationMs)
             musicPlayer.repeatMode = if (TimelineMath.musicShouldLoop(project)) {
                 Player.REPEAT_MODE_ONE
             } else {
@@ -1613,7 +1691,24 @@ private fun TimelinePreview(
         var reachedEnd = false
         var lastSpeed = 1f
         var lastEffects: List<Effect> = emptyList()
+        // Reloj de la vista previa cuando no hay clips: un proyecto solo con
+        // PNG se reproduce igual, en bucle, sobre la duración fijada.
+        var stillPositionMs = 0L
+        var lastFrameNanos = 0L
         while (true) {
+            if (clipsState.value.isEmpty()) {
+                val nanos = withFrameNanos { it }
+                val total = outputDurationState.value
+                if (lastFrameNanos != 0L && total > 0L) {
+                    stillPositionMs = (stillPositionMs + (nanos - lastFrameNanos) / 1_000_000L) % total
+                }
+                lastFrameNanos = nanos
+                previousPositionMs = stillPositionMs
+                positionMs = stillPositionMs
+                continue
+            }
+            lastFrameNanos = 0L
+            stillPositionMs = 0L
             // Sincronizado con el fotograma mientras hay reproducción; en pausa
             // basta un muestreo lento.
             if (videoPlayer.isPlaying) {
@@ -1734,6 +1829,7 @@ private fun TimelinePreview(
         val currentOnGesture by rememberUpdatedState(onLayerGesture)
         val currentOnWindowGesture by rememberUpdatedState(onWindowGesture)
         val motionNow by rememberUpdatedState(motionRecording)
+        val currentHasClips by rememberUpdatedState(hasClips)
         var windowSelected by remember { mutableStateOf(false) }
         // Tamaño medido de cada capa, en píxeles y sin escala, para el hit-test.
         val measuredSizes = remember { mutableMapOf<String, IntSize>() }
@@ -1760,8 +1856,9 @@ private fun TimelinePreview(
 
             // Ventana de vídeo: tamaño según la forma y la escala, posición
             // normalizada y giro. El PlayerView recorta con ZOOM (cover), que es
-            // lo mismo que hace `Crop` en la exportación.
-            Box(
+            // lo mismo que hace `Crop` en la exportación. Sin clips no hay
+            // ventana: el lienzo de imágenes ocupa todo el fotograma.
+            if (hasClips) Box(
                 modifier = Modifier
                     .size(
                         width = with(density) { windowWidth.toDp() },
@@ -1823,7 +1920,7 @@ private fun TimelinePreview(
                                 // La ventana de vídeo recibe el gesto solo si el
                                 // toque no cae en una capa visible.
                                 val window = currentWindow
-                                val windowHit = !motionNow &&
+                                val windowHit = currentHasClips && !motionNow &&
                                     VideoWindowMath.hitTest(
                                         centerX = currentContainerWidth * window.x,
                                         centerY = currentContainerHeight * window.y,
@@ -2034,6 +2131,7 @@ private fun TimelinePreview(
                         containerWidth = containerWidth,
                         containerHeight = containerHeight,
                         isSelected = layer.id == selectedLayerId,
+                        timeMs = positionMs,
                         onMeasured = { measuredSizes[layer.id] = it },
                     )
                 }
@@ -2065,6 +2163,7 @@ private fun LayerBox(
     containerWidth: Float,
     containerHeight: Float,
     isSelected: Boolean,
+    timeMs: Long,
     onMeasured: (IntSize) -> Unit,
 ) {
     val context = LocalContext.current
@@ -2076,6 +2175,18 @@ private fun LayerBox(
             null
         }
     }
+    // GIF animado: se rasteriza fuera del hilo principal y se dibuja el
+    // fotograma que corresponde al instante pedido, igual que en la exportación.
+    val gif by produceState<GifAnimation?>(null, layer.kind, layer.uri) {
+        value = if (layer.kind == LayerKind.GIF) {
+            withContext(Dispatchers.IO) {
+                layer.uri?.let { GifAnimation.load(context, it) }
+            }
+        } else {
+            null
+        }
+    }
+    val gifFrame = gif?.bitmapAt(timeMs)
 
     // El tamaño base se expresa como fracción del ancho del lienzo y la
     // exportación usa la misma fracción sobre el ancho del vídeo. La escala
@@ -2117,6 +2228,19 @@ private fun LayerBox(
                 }
                 Image(
                     bitmap = bitmap.asImageBitmap(),
+                    contentDescription = layer.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(width, height),
+                )
+            }
+
+            gifFrame != null -> {
+                val width = with(density) { basePngWidthPx.toDp() }
+                val height = with(density) {
+                    (basePngWidthPx * gifFrame.height / gifFrame.width.coerceAtLeast(1)).toDp()
+                }
+                Image(
+                    bitmap = gifFrame.asImageBitmap(),
                     contentDescription = layer.label,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(width, height),
@@ -2537,6 +2661,7 @@ private fun ExportPreviewDialog(
     val density = LocalDensity.current
     val firstClip = project.clips.firstOrNull()
     val clipUri = firstClip?.uri?.let { Uri.parse(it) }
+    val hasClips = project.clips.isNotEmpty()
 
     val frameBitmap by produceState<Bitmap?>(null, clipUri) {
         value = withContext(Dispatchers.IO) {
@@ -2596,6 +2721,7 @@ private fun ExportPreviewDialog(
     }
     val filterLabel = firstClip?.colorFilter?.label() ?: "Ninguno"
     val bgLabel = if (project.backgrounds.isNotEmpty()) "PNG" else "Negro"
+    val windowLabel = if (hasClips) aspectLabel else "Solo imágenes"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2628,8 +2754,10 @@ private fun ExportPreviewDialog(
                         )
                     }
 
+                    // Sin clips no hay fotograma de vídeo: el lienzo lo forman
+                    // el fondo y las capas, como en el MP4 de solo imágenes.
                     val frame = frameBitmap
-                    if (frame != null) {
+                    if (hasClips && frame != null) {
                         val filter = firstClip?.colorFilter?.composeColorFilter()
                         val wideScale = if (firstClip?.wideLens == WideLensMode.GRUPO) WIDE_LENS_SCALE else 1f
 
@@ -2656,7 +2784,7 @@ private fun ExportPreviewDialog(
                                     },
                             )
                         }
-                    } else {
+                    } else if (hasClips) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(36.dp),
                             color = Color.White,
@@ -2675,6 +2803,7 @@ private fun ExportPreviewDialog(
                                 containerWidth = canvasWidthPx,
                                 containerHeight = canvasHeightPx,
                                 isSelected = false,
+                                timeMs = previewTimeMs,
                                 onMeasured = {},
                             )
                         }
@@ -2693,7 +2822,7 @@ private fun ExportPreviewDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            text = "Duración: ${formatDuration(project.totalDurationMs)}",
+                            text = "Duración: ${formatDuration(project.outputDurationMs)}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
@@ -2707,7 +2836,7 @@ private fun ExportPreviewDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            text = "Ventana: $aspectLabel",
+                            text = "Ventana: $windowLabel",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(

@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-10-30**: GIF animados, duración de grabación fijada y vídeos solo con PNG (v1.5.0):
+  1. `LayerKind.GIF` + `media/GifAnimation`: el GIF se detecta por cabecera (no por el nombre), se rasteriza en hasta 24 fotogramas de 384 px y se elige el fotograma según el tiempo del vídeo, en vista previa y en el MP4.
+  2. `Project.targetDurationMs`: chips "Duración" (5/10/15/30 s) que cortan la grabación sola con cronómetro y definen cuánto dura un vídeo sin clips; nunca se pasa de los 30 s del proyecto.
+  3. Exportación sin clips: la secuencia de imágenes preparadas (fondos o lienzo negro) hace de pista de vídeo durante la duración fijada, con capas, GIF y música; la vista previa usa un reloj propio y el resumen de exportación ya no espera un fotograma inexistente.
+  4. Documentado en OpenSpec (`add-gif-and-still-videos`), README y tests (`GifAnimationTest`, `TargetDurationTest`).
+
 - **2026-10-30**: Recepción de archivos compartidos desde otras apps (v1.4.0):
   1. `MainActivity` con `singleTop` y filtros `SEND`, `SEND_MULTIPLE` y `VIEW`; los archivos que llegan se clasifican por MIME y, si falta, por extensión (`SharedKinds`/`SharedMedia`).
   2. Vídeos entran como clips, imágenes como capas PNG y el primer audio como música del proyecto; todo se copia a `filesDir/media` y se puede deshacer.

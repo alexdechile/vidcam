@@ -4,6 +4,15 @@ import kotlinx.serialization.Serializable
 
 const val MAX_DURATION_MS = 30_000L
 
+/** Duración mínima que se puede fijar para una grabación o un vídeo de imágenes. */
+const val MIN_TARGET_DURATION_MS = 1_000L
+
+/**
+ * Duraciones que se pueden fijar de antemano: cuánto graba la cámara y, en un
+ * proyecto sin clips, cuánto dura el vídeo hecho solo con PNG.
+ */
+val TARGET_DURATIONS_MS: List<Long> = listOf(5_000L, 10_000L, 15_000L, 30_000L)
+
 /** Velocidades de reproducción disponibles (cámara lenta y rápida). */
 val CLIP_SPEEDS: List<Float> = listOf(0.25f, 0.5f, 1f, 2f, 4f)
 
@@ -62,7 +71,16 @@ data class VideoClip(
 }
 
 @Serializable
-enum class LayerKind { PNG, TEXT }
+enum class LayerKind {
+    /** Imagen fija (PNG, JPEG u otro formato sin movimiento). */
+    PNG,
+
+    /** Texto rasterizado con una fuente de Google Fonts. */
+    TEXT,
+
+    /** GIF animado: se dibuja el fotograma que corresponde al tiempo del vídeo. */
+    GIF,
+}
 
 /**
  * Fotograma clave del transform de una capa. El tiempo es absoluto dentro de la
@@ -179,9 +197,40 @@ data class Project(
     val backgrounds: List<BackgroundLayer> = emptyList(),
     /** Transform global de la ventana de vídeo. */
     val videoWindow: VideoWindow = VideoWindow(),
+    /**
+     * Duración fijada de antemano: es el tope de la próxima grabación y, en un
+     * proyecto sin clips, la duración del vídeo hecho solo con PNG y capas.
+     *
+     * Los proyectos guardados antes de existir este campo cargan con el máximo
+     * (30 s), así que no cambian de comportamiento.
+     */
+    val targetDurationMs: Long = MAX_DURATION_MS,
 ) {
+    /** Duración de los clips en la línea de tiempo. */
     val totalDurationMs: Long
         get() = TimelineMath.totalDuration(clips)
+
+    /**
+     * Duración del vídeo que se exporta y que se ve en la vista previa: la de
+     * los clips o, si no hay ninguno, la [targetDurationMs] fijada.
+     */
+    val outputDurationMs: Long
+        get() = if (clips.isEmpty()) {
+            targetDurationMs.coerceIn(MIN_TARGET_DURATION_MS, MAX_DURATION_MS)
+        } else {
+            totalDurationMs
+        }
+
+    /**
+     * `true` cuando hay algo que exportar aunque no haya clips: un proyecto de
+     * imágenes (capas PNG/texto/GIF) o de fondos solamente.
+     */
+    val hasStillContent: Boolean
+        get() = layers.isNotEmpty() || backgrounds.isNotEmpty()
+
+    /** `true` cuando el proyecto se puede exportar (con clips o solo con imágenes). */
+    val canExport: Boolean
+        get() = clips.isNotEmpty() || hasStillContent
 
     val isOverLimit: Boolean
         get() = totalDurationMs > MAX_DURATION_MS

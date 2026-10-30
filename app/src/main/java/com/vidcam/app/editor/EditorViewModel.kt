@@ -10,6 +10,7 @@ import com.vidcam.app.data.SavedProject
 import com.vidcam.app.export.GallerySaver
 import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
+import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
 import com.vidcam.app.model.ColorFilterPreset
@@ -19,6 +20,7 @@ import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.LayerTiming
 import com.vidcam.app.model.MAX_DURATION_MS
+import com.vidcam.app.model.MIN_TARGET_DURATION_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
@@ -532,12 +534,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Copia [uri] al almacenamiento propio y la agrega como capa PNG. Devuelve
-     * `true` si la capa entró al proyecto.
+     * Copia [uri] al almacenamiento propio y la agrega como capa de imagen.
+     * Devuelve `true` si la capa entró al proyecto.
+     *
+     * La copia se inspecciona por su cabecera: si es un GIF (compartido desde
+     * otra app o elegido de la galería) la capa queda animada, aunque el archivo
+     * se haya guardado con extensión `.png`.
      */
     private suspend fun addPngLayerInternal(uri: Uri, extension: String = "png"): Boolean {
         if (uri.scheme == "asset") {
-            addPngLayerWithUri(uri.toString())
+            addPngLayerWithUri(uri.toString(), LayerKind.PNG)
             return true
         }
         val stored = withContext(Dispatchers.IO) {
@@ -547,25 +553,30 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             _message.value = "No se pudo agregar la imagen"
             return false
         }
-        addPngLayerWithUri(Uri.fromFile(stored).toString())
+        val isGif = withContext(Dispatchers.IO) { GifAnimation.isGif(stored) }
+        addPngLayerWithUri(
+            uri = Uri.fromFile(stored).toString(),
+            kind = if (isGif) LayerKind.GIF else LayerKind.PNG,
+        )
         return true
     }
 
-    private fun addPngLayerWithUri(uri: String) = update { project ->
-        val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
-        project.copy(
-            layers = project.layers + newLayerWindow(
-                project = project,
-                layer = OverlayLayer(
-                    id = "layer-${System.currentTimeMillis()}",
-                    kind = LayerKind.PNG,
-                    uri = uri,
-                    label = "Imagen",
-                    zIndex = nextZ + 1,
+    private fun addPngLayerWithUri(uri: String, kind: LayerKind = LayerKind.PNG) =
+        update { project ->
+            val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
+            project.copy(
+                layers = project.layers + newLayerWindow(
+                    project = project,
+                    layer = OverlayLayer(
+                        id = "layer-${System.currentTimeMillis()}",
+                        kind = kind,
+                        uri = uri,
+                        label = if (kind == LayerKind.GIF) "GIF" else "Imagen",
+                        zIndex = nextZ + 1,
+                    ),
                 ),
-            ),
-        )
-    }
+            )
+        }
 
     fun addTextLayer(text: String, fontName: String?) = update { project ->
         val nextZ = project.layers.maxByOrNull { it.zIndex }?.zIndex ?: -1
@@ -589,8 +600,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * mismos límites que usan los controles de duración.
      */
     private fun newLayerWindow(project: Project, layer: OverlayLayer): OverlayLayer {
-        val durationMs = project.totalDurationMs.coerceAtLeast(1000L)
-        return LayerTiming.withDuration(layer, durationMs, project.totalDurationMs)
+        val totalMs = project.outputDurationMs
+        val durationMs = totalMs.coerceAtLeast(1000L)
+        return LayerTiming.withDuration(layer, durationMs, totalMs)
     }
 
     fun updateLayer(layer: OverlayLayer) = update("layer-edit:${layer.id}") { project ->
@@ -606,7 +618,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             project.copy(
                 layers = project.layers.map {
                     if (it.id == id) {
-                        LayerTiming.withDuration(it, durationMs, project.totalDurationMs)
+                        LayerTiming.withDuration(it, durationMs, project.outputDurationMs)
                     } else {
                         it
                     }
@@ -623,7 +635,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             project.copy(
                 layers = project.layers.map {
                     if (it.id == id) {
-                        LayerTiming.withStart(it, startMs, project.totalDurationMs)
+                        LayerTiming.withStart(it, startMs, project.outputDurationMs)
                     } else {
                         it
                     }
@@ -713,7 +725,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun addBackgroundWithUri(uri: String, startMs: Long, endMs: Long) {
         val id = "bg-${System.currentTimeMillis()}"
         update("background-add:$id") { project ->
-            val total = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+            val total = project.outputDurationMs
             val nextZ = project.backgrounds.maxByOrNull { it.zIndex }?.zIndex ?: -1
             val background = BackgroundLayer(
                 id = id,
@@ -738,7 +750,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         update("background-edit:${background.id}") { project ->
-            val total = if (project.totalDurationMs > 0L) project.totalDurationMs else MAX_DURATION_MS
+            val total = project.outputDurationMs
             val others = project.backgrounds.filterNot { it.id == background.id }
             project.copy(
                 backgrounds = VideoWindowMath.trimOverlaps(
@@ -778,6 +790,50 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 rotationDeg = 0f,
             ),
         )
+    }
+
+    // --- Duración fijada de antemano ---------------------------------------
+
+    /**
+     * Fija cuánto dura el vídeo cuando la línea de tiempo no tiene clips (un
+     * proyecto solo con PNG) y cuánto graba la cámara de una vez.
+     *
+     * En un proyecto sin clips, las capas y los fondos que llegaban hasta el
+     * final se estiran o recortan con la nueva duración; así el ajuste no deja
+     * huecos ni material huérfano.
+     */
+    fun setTargetDuration(durationMs: Long) {
+        val target = durationMs.coerceIn(MIN_TARGET_DURATION_MS, MAX_DURATION_MS)
+        update("target-duration") { project ->
+            if (project.targetDurationMs == target) return@update project
+            val previousEnd = project.outputDurationMs
+            val stillOnly = project.clips.isEmpty()
+            project.copy(
+                targetDurationMs = target,
+                layers = if (stillOnly) {
+                    project.layers.map { layer ->
+                        if (layer.endMs >= previousEnd) {
+                            LayerTiming.withDuration(layer, target - layer.startMs, target)
+                        } else {
+                            layer
+                        }
+                    }
+                } else {
+                    project.layers
+                },
+                backgrounds = if (stillOnly) {
+                    project.backgrounds.map { background ->
+                        if (background.endMs >= previousEnd) {
+                            background.copy(endMs = target)
+                        } else {
+                            background
+                        }
+                    }
+                } else {
+                    project.backgrounds
+                },
+            )
+        }
     }
 
     // --- Animación de capas -------------------------------------------------

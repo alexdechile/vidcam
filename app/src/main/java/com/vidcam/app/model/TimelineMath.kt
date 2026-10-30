@@ -35,12 +35,13 @@ object TimelineMath {
 
     /**
      * Ventana [inicio, fin] de la pista de música dentro del archivo original,
-     * o null si no hay música activa.
+     * o null si no hay música activa. Se mide sobre la duración de salida, así
+     * que también cubre los proyectos sin clips (solo imágenes).
      */
     fun musicWindowMs(project: Project): Pair<Long, Long>? {
         val music = project.music ?: return null
         if (!project.musicEnabled) return null
-        val total = totalDuration(project.clips)
+        val total = project.outputDurationMs
         if (total <= 0L) return null
         val maxStart = (music.durationMs - 1).coerceAtLeast(0L)
         val start = project.musicStartMs.coerceIn(0L, maxStart)
@@ -53,8 +54,17 @@ object TimelineMath {
     fun musicShouldLoop(project: Project): Boolean {
         val music = project.music ?: return false
         if (!project.musicEnabled) return false
-        val total = totalDuration(project.clips)
+        val total = project.outputDurationMs
         val available = (music.durationMs - project.musicStartMs).coerceAtLeast(0L)
         return total > available
     }
+
+    /**
+     * Cuánto puede grabar la cámara: la duración fijada de antemano
+     * ([Project.targetDurationMs]) sin pasarse de lo que queda libre del
+     * proyecto de 30 s. Devuelve 0 si ya no cabe nada.
+     */
+    fun recordingLimitMs(targetMs: Long, usedMs: Long): Long =
+        minOf(targetMs, MAX_DURATION_MS - usedMs).coerceAtLeast(0L)
+
 }

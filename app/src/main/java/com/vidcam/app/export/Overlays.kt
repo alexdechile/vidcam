@@ -11,6 +11,7 @@ import android.net.Uri
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlaySettings
+import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.resolvedAt
@@ -27,15 +28,21 @@ import com.vidcam.app.model.resolvedAt
  * [baseScale] es el factor de escala del bitmap para una capa con escala 1; en
  * cada fotograma se multiplica por la escala resuelta de la animación, de modo
  * que el movimiento grabado se reproduce en el MP4.
+ *
+ * Con [gif] la capa es un GIF animado: cada fotograma del vídeo pide el
+ * fotograma del GIF que corresponde a su tiempo, y así el MP4 conserva el
+ * movimiento.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class LayerBitmapOverlay(
     private val bitmap: Bitmap,
     private val layer: OverlayLayer,
     private val baseScale: Float,
+    private val gif: GifAnimation? = null,
 ) : BitmapOverlay() {
 
-    override fun getBitmap(presentationTimeUs: Long): Bitmap = bitmap
+    override fun getBitmap(presentationTimeUs: Long): Bitmap =
+        gif?.bitmapAt(presentationTimeUs / 1000L) ?: bitmap
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
         val startUs = layer.startMs * 1000L
@@ -131,9 +138,19 @@ object LayerBitmaps {
         val height = videoHeight.coerceAtLeast(1)
         val bitmap: Bitmap
         val baseScale: Float
+        var gif: GifAnimation? = null
         when (layer.kind) {
             LayerKind.PNG -> {
                 bitmap = layer.uri?.let { decodePng(context, it) } ?: return null
+                val targetWidth = width * BASE_PNG_WIDTH_FRACTION
+                baseScale = (targetWidth / bitmap.width.coerceAtLeast(1))
+                    .coerceIn(0.01f, 20f)
+            }
+            LayerKind.GIF -> {
+                val animation = layer.uri?.let { GifAnimation.load(context, it) }
+                    ?: return null
+                gif = animation
+                bitmap = animation.firstFrame
                 val targetWidth = width * BASE_PNG_WIDTH_FRACTION
                 baseScale = (targetWidth / bitmap.width.coerceAtLeast(1))
                     .coerceIn(0.01f, 20f)
@@ -145,6 +162,6 @@ object LayerBitmaps {
                 baseScale = 1f / TEXT_RASTER_FACTOR
             }
         }
-        return LayerBitmapOverlay(bitmap, layer, baseScale)
+        return LayerBitmapOverlay(bitmap, layer, baseScale, gif)
     }
 }

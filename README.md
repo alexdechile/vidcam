@@ -6,16 +6,18 @@ capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
 rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
 pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
-(H.264/AAC) con guardado en galería y hoja de compartir, y recepción de vídeos,
-imágenes y música compartidos desde otras apps.
+(H.264/AAC) con guardado en galería y hoja de compartir, recepción de vídeos,
+imágenes y música compartidos desde otras apps, capas GIF animadas y vídeos
+hechos solo con imágenes.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
 `openspec/changes/add-layer-motion-recording/`,
 `openspec/changes/add-project-persistence-and-undo/`,
 `openspec/changes/add-clip-speed/`,
-`openspec/changes/add-background-and-video-window/` y
-`openspec/changes/add-shared-file-intake/`.
+`openspec/changes/add-background-and-video-window/`,
+`openspec/changes/add-shared-file-intake/` y
+`openspec/changes/add-gif-and-still-videos/`.
 
 ## Fondos y ventana de vídeo
 
@@ -152,6 +154,23 @@ git push origin v1.0.0
   MP4 en la galería, la app lo abre en el visor de vídeo del sistema mediante
   `ACTION_VIEW`. Si ninguna aplicación puede manejarlo, el vídeo queda guardado
   igualmente y solo se muestra el aviso.
+- **GIF animados**: un GIF compartido desde otra app o elegido con el botón
+  "PNG" entra como capa animada (`LayerKind.GIF`). El formato se detecta por la
+  cabecera del archivo, no por el nombre, así que también funciona cuando la
+  copia interna se guarda como `.png`. El GIF se ve en movimiento en la vista
+  previa y en el MP4: sus fotogramas se rasterizan una vez (máximo 24, 384 px de
+  lado) y se elige el que corresponde al tiempo del vídeo. Un GIF usado como
+  *fondo* se sigue viendo con su primer fotograma.
+- **Duración fijada de antemano**: los chips "Duración" (5, 10, 15 o 30 s)
+  determinan cuánto graba la cámara —se detiene sola y muestra un cronómetro— y
+  cuánto dura un vídeo hecho solo con imágenes. Nunca se pasa de lo que queda
+  libre del proyecto de 30 s. La elección se guarda en el JSON del proyecto.
+- **Vídeos solo con PNG**: con un fondo, capas PNG/texto o GIF ya se puede
+  exportar, aunque no haya ningún clip. El MP4 se arma con la secuencia de
+  imágenes preparadas (o un lienzo negro si no hay fondo) durante la duración
+  fijada, con las capas y la música por encima; la vista previa muestra ese
+  lienzo con gestos y animación, y el diálogo de exportación lo resume sin
+  esperar un fotograma de vídeo que no existe.
 - **Archivos compartidos desde otras apps**: VidCam aparece en la hoja de
   compartir de Android (y en "Abrir con") para vídeo, imagen y audio. Un vídeo
   compartido entra como clip de la línea de tiempo (con el límite de 30 s y el
@@ -173,7 +192,8 @@ git push origin v1.0.0
 - `app/src/main/java/com/vidcam/app/model`: modelo del proyecto y cálculos de timeline.
 - `app/src/main/java/com/vidcam/app/data`: persistencia de proyectos (JSON por proyecto).
 - `app/src/main/java/com/vidcam/app/capture`: grabación con CameraX.
-- `app/src/main/java/com/vidcam/app/media`: importación y biblioteca de música.
+- `app/src/main/java/com/vidcam/app/media`: importación, biblioteca de música y
+  animación de GIF.
 - `app/src/main/java/com/vidcam/app/share`: recepción y clasificación de archivos
   compartidos desde otras apps.
 - `app/src/main/java/com/vidcam/app/editor`: ViewModel y pantalla del editor.
