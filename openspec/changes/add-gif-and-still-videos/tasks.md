@@ -31,5 +31,5 @@
 ## 4. Verificación y entrega
 
 - [x] 4.1 `GifAnimationTest` y `TargetDurationTest`
-- [ ] 4.2 CI en verde (lint + test + assemble debug, release y androidTest)
-- [ ] 4.3 APK release enviado por WhatsApp
+- [x] 4.2 CI en verde (lint + test + assemble debug, release y androidTest)
+- [x] 4.3 APK release enviado por WhatsApp
