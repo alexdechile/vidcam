@@ -1,6 +1,7 @@
 package com.vidcam.app.audio
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -169,6 +170,8 @@ class VoiceoverRecorder(private val context: Context) {
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
+    // La toma solo se abre después de comprobar RECORD_AUDIO en [start].
+    @SuppressLint("MissingPermission")
     private fun openRecorder(): AudioRecord? {
         val minBuffer = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
