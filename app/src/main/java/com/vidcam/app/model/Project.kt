@@ -185,6 +185,32 @@ data class MusicTrack(
     val durationMs: Long,
 )
 
+/**
+ * Toma de voz en off (doblaje) del proyecto.
+ *
+ * [uri] guarda siempre la toma cruda y [processedUri] la versión con la
+ * aislación de entorno (RNNoise) ya aplicada: [activeUri] elige cuál se usa en
+ * la vista previa y en la exportación. [startMs] admite valores negativos para
+ * adelantar la toma dentro del vídeo; con positivos la voz entra más tarde.
+ */
+@Serializable
+data class VoiceoverTrack(
+    val uri: String,
+    val processedUri: String? = null,
+    val denoise: Boolean = true,
+    val startMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val volume: Float = 1f,
+) {
+    /** Archivo que suena: la versión limpia si está activada y disponible. */
+    val activeUri: String
+        get() = if (denoise) processedUri ?: uri else uri
+
+    /** `true` cuando la toma tiene audio que colocar en la línea de tiempo. */
+    val isUsable: Boolean
+        get() = durationMs > 0L
+}
+
 @Serializable
 data class Project(
     val clips: List<VideoClip> = emptyList(),
@@ -192,6 +218,12 @@ data class Project(
     val musicEnabled: Boolean = false,
     val musicStartMs: Long = 0L,
     val originalAudioMuted: Boolean = false,
+    /** Volumen del audio de los clips cuando no está silenciado (0..1). */
+    val originalVolume: Float = 1f,
+    /** Volumen de la música sobre la mezcla (0..1). */
+    val musicVolume: Float = 1f,
+    /** Voz en off grabada después del montaje. */
+    val voiceover: VoiceoverTrack? = null,
     val layers: List<OverlayLayer> = emptyList(),
     /** Fondos PNG por tramos, dibujados debajo del vídeo y de las capas. */
     val backgrounds: List<BackgroundLayer> = emptyList(),
@@ -235,9 +267,10 @@ data class Project(
     val isOverLimit: Boolean
         get() = totalDurationMs > MAX_DURATION_MS
 
-    /** Un proyecto sin clips, capas, fondos ni música no tiene nada que guardar. */
+    /** Un proyecto sin clips, capas, fondos, música ni voz no tiene nada que guardar. */
     val isEmpty: Boolean
-        get() = clips.isEmpty() && layers.isEmpty() && backgrounds.isEmpty() && music == null
+        get() = clips.isEmpty() && layers.isEmpty() && backgrounds.isEmpty() &&
+            music == null && voiceover == null
 
     /**
      * `true` cuando hace falta componer fondo + ventana de vídeo. Sin fondos y

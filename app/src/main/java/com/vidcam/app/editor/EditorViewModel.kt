@@ -5,6 +5,9 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.vidcam.app.audio.VoiceoverProcessor
+import com.vidcam.app.audio.VoiceoverRecorder
+import com.vidcam.app.audio.WavFile
 import com.vidcam.app.data.ProjectStore
 import com.vidcam.app.data.SavedProject
 import com.vidcam.app.export.GallerySaver
@@ -28,6 +31,8 @@ import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowMath
+import com.vidcam.app.model.VoiceoverMath
+import com.vidcam.app.model.VoiceoverTrack
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.clearAnimation
 import com.vidcam.app.model.removeKeyframeAt
@@ -38,6 +43,8 @@ import com.vidcam.app.share.SharedFile
 import com.vidcam.app.share.SharedKind
 import com.vidcam.app.share.SharedKinds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,6 +75,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _motionRecording = MutableStateFlow(false)
     val motionRecording: StateFlow<Boolean> = _motionRecording.asStateFlow()
 
+    private val _voiceRecording = MutableStateFlow(false)
+    val voiceRecording: StateFlow<Boolean> = _voiceRecording.asStateFlow()
+
+    private val _voiceLevel = MutableStateFlow(0f)
+    val voiceLevel: StateFlow<Float> = _voiceLevel.asStateFlow()
+
+    private val _voiceProcessing = MutableStateFlow(false)
+    val voiceProcessing: StateFlow<Boolean> = _voiceProcessing.asStateFlow()
+
     private val _canUndo = MutableStateFlow(false)
     val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
 
@@ -87,6 +103,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     val dirty: StateFlow<Boolean> = _dirty.asStateFlow()
 
     private val musicRepository = MusicRepository(application)
+    private val voiceRecorder = VoiceoverRecorder(application)
+    private val voiceDir = File(application.filesDir, "voice")
+    private var voiceStopJob: Job? = null
     private val exporter = VideoExporter(application)
     private val projectStore = ProjectStore(File(application.filesDir, "projects"))
     private val history = UndoHistory()
@@ -520,6 +539,138 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setOriginalAudioMuted(muted: Boolean) =
         update { it.copy(originalAudioMuted = muted) }
+
+    // --- Voz en off (doblaje) ---------------------------------------------
+
+    /**
+     * Arranca una toma de voz en off. La grabación se detiene sola cuando
+     * termina el vídeo, y el editor debe reiniciar la vista previa desde el
+     * principio para que la toma quede alineada con el montaje.
+     */
+    fun startVoiceoverTake(): Boolean {
+        if (_voiceRecording.value) return false
+        val totalMs = _project.value.outputDurationMs
+        if (totalMs <= 0L) {
+            _message.value = "El vídeo no tiene duración"
+            return false
+        }
+        voiceDir.mkdirs()
+        val wav = File(voiceDir, "voz-${System.currentTimeMillis()}.wav")
+        val started = voiceRecorder.start(
+            wav = wav,
+            onLevel = { level -> _voiceLevel.value = level },
+            onFinished = { file ->
+                _voiceRecording.value = false
+                _voiceLevel.value = 0f
+                if (file != null) applyVoiceoverTake(file)
+            },
+        )
+        if (!started) {
+            _message.value = "No se pudo acceder al micrófono"
+            return false
+        }
+        _voiceRecording.value = true
+        _voiceLevel.value = 0f
+        voiceStopJob?.cancel()
+        voiceStopJob = viewModelScope.launch {
+            delay(totalMs + 120L)
+            if (_voiceRecording.value) stopVoiceoverTake()
+        }
+        return true
+    }
+
+    /** Detiene la toma en curso; el resultado llega por [applyVoiceoverTake]. */
+    fun stopVoiceoverTake() {
+        voiceStopJob?.cancel()
+        voiceStopJob = null
+        voiceRecorder.stop()
+    }
+
+    /**
+     * Deja la toma como voz del proyecto y lanza la aislación de entorno en
+     * segundo plano. La toma cruda se conserva para poder reprocesarla.
+     */
+    private fun applyVoiceoverTake(file: File) {
+        val duration = WavFile.durationMs(file)
+        if (duration <= 0L) {
+            file.delete()
+            _message.value = "No se grabó audio"
+            return
+        }
+        val track = VoiceoverTrack(
+            uri = Uri.fromFile(file).toString(),
+            durationMs = duration,
+            denoise = true,
+        )
+        update("voice-take") { it.copy(voiceover = track) }
+        processVoiceover(track)
+    }
+
+    /** Aplica RNNoise sobre la toma cruda y guarda la versión limpia. */
+    private fun processVoiceover(track: VoiceoverTrack) {
+        val raw = fileOf(track.uri) ?: return
+        val processed = File(raw.parentFile, "${raw.nameWithoutExtension}-limpia.wav")
+        _voiceProcessing.value = true
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                VoiceoverProcessor.denoise(raw, processed)
+            }
+            _voiceProcessing.value = false
+            update("voice-take") { project ->
+                val current = project.voiceover
+                if (current?.uri != track.uri) {
+                    project
+                } else {
+                    project.copy(
+                        voiceover = current.copy(
+                            processedUri = if (ok) Uri.fromFile(processed).toString() else null,
+                            denoise = ok,
+                        ),
+                    )
+                }
+            }
+            if (!ok) _message.value = "No se pudo aislar el entorno; queda la toma original"
+        }
+    }
+
+    fun setVoiceoverDenoise(enabled: Boolean) {
+        val track = _project.value.voiceover ?: return
+        update("voice-denoise") { project ->
+            project.copy(voiceover = project.voiceover?.copy(denoise = enabled))
+        }
+        if (enabled && track.processedUri == null && !_voiceProcessing.value) {
+            processVoiceover(track)
+        }
+    }
+
+    fun setVoiceoverStart(ms: Long) = update("voice-start") { project ->
+        val track = project.voiceover ?: return@update project
+        project.copy(
+            voiceover = track.copy(
+                startMs = VoiceoverMath.clampStartMs(ms, project.outputDurationMs),
+            ),
+        )
+    }
+
+    fun setVoiceoverVolume(volume: Float) = update("voice-volume") { project ->
+        project.copy(voiceover = project.voiceover?.copy(volume = volume.coerceIn(0f, 1f)))
+    }
+
+    fun removeVoiceover() = update { it.copy(voiceover = null) }
+
+    fun setOriginalVolume(volume: Float) = update("original-volume") { project ->
+        project.copy(originalVolume = volume.coerceIn(0f, 1f))
+    }
+
+    fun setMusicVolume(volume: Float) = update("music-volume") { project ->
+        project.copy(musicVolume = volume.coerceIn(0f, 1f))
+    }
+
+    private fun fileOf(uri: String): File? {
+        val parsed = Uri.parse(uri)
+        val path = parsed.path ?: return null
+        return if (parsed.scheme == null || parsed.scheme == "file") File(path) else null
+    }
 
     // --- Capas -------------------------------------------------------------
 
@@ -976,6 +1127,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         super.onCleared()
+        voiceRecorder.stop()
         exporter.cancel()
     }
 }

@@ -13,12 +13,28 @@ android {
     namespace = "com.vidcam.app"
     compileSdk = 35
 
+    // RNNoise (aislación de entorno de la voz en off) se compila con CMake
+    // desde `app/src/main/cpp`. Las ABIs son las de los teléfonos reales más
+    // x86_64 para el emulador de los tests instrumentados.
+    ndkVersion = "27.0.12077973"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.vidcam.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.5.0"
+        versionCode = 14
+        versionName = "1.6.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -7,8 +7,9 @@ rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
 pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
 (H.264/AAC) con guardado en galería y hoja de compartir, recepción de vídeos,
-imágenes y música compartidos desde otras apps, capas GIF animadas y vídeos
-hechos solo con imágenes.
+imágenes y música compartidos desde otras apps, capas GIF animadas, vídeos
+hechos solo con imágenes y voz en off (doblaje) con aislación de entorno y
+volumen por pista.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
@@ -16,8 +17,30 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 `openspec/changes/add-project-persistence-and-undo/`,
 `openspec/changes/add-clip-speed/`,
 `openspec/changes/add-background-and-video-window/`,
-`openspec/changes/add-shared-file-intake/` y
-`openspec/changes/add-gif-and-still-videos/`.
+`openspec/changes/add-shared-file-intake/`,
+`openspec/changes/add-gif-and-still-videos/` y
+`openspec/changes/add-voiceover/`.
+
+## Voz en off
+
+- **Doblar**: botón `Voz` en el editor. La vista previa vuelve al principio, se
+  reproduce con el monitoreo al 25 % y la toma se graba desde el segundo cero
+  hasta que termina el vídeo (o hasta `Detener`). Se puede regrabar las veces
+  que haga falta.
+- **Aislación de entorno**: la toma se guarda cruda a 48 kHz mono y se procesa
+  después con paso alto, RNNoise (0.1.1 vendorizado, JNI/CMake) y nivelación a
+  −1 dBFS. El interruptor `Aislar entorno (RNNoise)` compara la toma limpia con
+  la cruda sin volver a hablar. Sin la librería nativa disponible se aplica solo
+  el filtro y la nivelación.
+- **Entrada**: el slider mueve la toma dentro del vídeo (−2 s recorta el
+  comienzo, valores positivos la retrasan); lo que pasa del final del vídeo no
+  se exporta.
+- **Mezcla**: la misma hoja ajusta el volumen de la voz, del audio original y de
+  la música. En la exportación cada pista entra al mezclador de Media3 ya
+  escalada (`GainAudioProcessor`), porque `EditedMediaItem` no expone volumen.
+- La vista previa reproduce la voz con un segundo `ExoPlayer` sincronizado al
+  vídeo; mientras se graba, la voz existente se silencia para no realimentar el
+  micrófono.
 
 ## Fondos y ventana de vídeo
 
@@ -35,6 +58,8 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 
 - JDK 17
 - Android SDK con `compileSdk 35`
+- NDK 27.0.12077973 y CMake 3.22.1 (solo para compilar el módulo nativo de
+  RNNoise; el CI los instala solos)
 - Gradle wrapper incluido (`./gradlew`)
 
 ## Compilar y probar

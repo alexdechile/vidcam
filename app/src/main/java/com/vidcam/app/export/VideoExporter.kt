@@ -25,6 +25,8 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.vidcam.app.audio.GainAudioProcessor
+import com.vidcam.app.audio.WavFile
 import com.vidcam.app.effect.*
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.Project
@@ -32,6 +34,7 @@ import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowAspect
 import com.vidcam.app.model.VideoWindowMath
+import com.vidcam.app.model.VoiceoverMath
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -81,6 +84,9 @@ class VideoExporter(private val context: Context) {
     private var generation = 0
 
     private var tempDir: File? = null
+
+    /** Carpeta temporal de la pista de voz preparada (relleno o recorte). */
+    private var voiceTempDir: File? = null
 
     fun cancel() {
         generation++
@@ -145,12 +151,16 @@ class VideoExporter(private val context: Context) {
     ) {
         val (videoWidth, videoHeight) = frameSize
         tempDir = prepared?.dir
+        val voiceWorkDir = File(context.cacheDir, "voz-${System.currentTimeMillis()}")
+            .apply { mkdirs() }
+        voiceTempDir = voiceWorkDir
 
         val sequences = buildSequences(
             project = project,
             prepared = prepared,
             videoWidth = videoWidth,
             videoHeight = videoHeight,
+            voiceWorkDir = voiceWorkDir,
         )
         val compositionBuilder = Composition.Builder(sequences)
 
@@ -232,6 +242,8 @@ class VideoExporter(private val context: Context) {
     private fun cleanupTemporaryFiles() {
         tempDir?.deleteRecursively()
         tempDir = null
+        voiceTempDir?.deleteRecursively()
+        voiceTempDir = null
     }
 
     /**
@@ -338,6 +350,7 @@ class VideoExporter(private val context: Context) {
         prepared: PreparedComposition?,
         videoWidth: Int,
         videoHeight: Int,
+        voiceWorkDir: File,
     ): List<EditedMediaItemSequence> {
         val window = project.videoWindow
         val windowAspect = VideoWindowMath.aspectRatio(
@@ -367,7 +380,7 @@ class VideoExporter(private val context: Context) {
                 .build()
             val speed = clip.playbackSpeed.coerceAtLeast(0.01f)
             val builder = EditedMediaItem.Builder(mediaItem)
-            if (project.originalAudioMuted) {
+            if (project.originalAudioMuted || project.originalVolume <= 0f) {
                 builder.setRemoveAudio(true)
             }
             val colorEffect = clip.colorFilter.media3Effect()
@@ -384,32 +397,37 @@ class VideoExporter(private val context: Context) {
             }
             val wideEffect = clip.wideLens.media3Transformation()
             val shakeEffect = clip.shake.media3Transformation()
-            val hasVideoEffects = speed != 1f || colorEffect != null ||
-                presentationEffect != null || wideEffect != null || shakeEffect != null
-            if (hasVideoEffects) {
-                // En Media3 1.5 la velocidad se pide con efectos: el par
-                // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
-                // la sincronización; el filtro de color, la normalización de la
-                // ventana y el encuadre ancho se componen como efectos de vídeo.
-                val speedPair =
-                    if (!project.originalAudioMuted && speed != 1f) {
-                        Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
-                    } else {
-                        null
-                    }
-                val videoEffects = buildList {
-                    when {
-                        speed == 1f -> Unit
-                        project.originalAudioMuted -> add(SpeedChangeEffect(speed))
-                        else -> speedPair?.second?.let { add(it) }
-                    }
-                    colorEffect?.let { add(it) }
-                    presentationEffect?.let { add(it) }
-                    wideEffect?.let { add(it) }
-                    shakeEffect?.let { add(it) }
+            // Volumen del audio original: se aplica como efecto de audio por
+            // clip (Media3 no expone volumen por pista en la composición).
+            val originalGain = if (project.originalAudioMuted) 1f else project.originalVolume
+            // En Media3 1.5 la velocidad se pide con efectos: el par
+            // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
+            // la sincronización; el filtro de color, la normalización de la
+            // ventana y el encuadre ancho se componen como efectos de vídeo.
+            val speedPair =
+                if (!project.originalAudioMuted && speed != 1f) {
+                    Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
+                } else {
+                    null
                 }
-                val audioEffects =
-                    if (speedPair != null) listOf(speedPair.first) else emptyList()
+            val videoEffects = buildList {
+                when {
+                    speed == 1f -> Unit
+                    project.originalAudioMuted -> add(SpeedChangeEffect(speed))
+                    else -> speedPair?.second?.let { add(it) }
+                }
+                colorEffect?.let { add(it) }
+                presentationEffect?.let { add(it) }
+                wideEffect?.let { add(it) }
+                shakeEffect?.let { add(it) }
+            }
+            val audioEffects = buildList {
+                speedPair?.first?.let { add(it) }
+                if (!project.originalAudioMuted && originalGain != 1f) {
+                    add(GainAudioProcessor(originalGain.coerceAtLeast(0.01f)))
+                }
+            }
+            if (audioEffects.isNotEmpty() || videoEffects.isNotEmpty()) {
                 builder.setEffects(Effects(audioEffects, videoEffects))
             }
             builder.build()
@@ -450,14 +468,58 @@ class VideoExporter(private val context: Context) {
                         .build(),
                 )
                 .build()
-            val editedMusic = EditedMediaItem.Builder(musicItem)
+            val musicBuilder = EditedMediaItem.Builder(musicItem)
                 .setRemoveVideo(true)
-                .build()
-            sequences += EditedMediaItemSequence.Builder(editedMusic)
-                .setIsLooping(TimelineMath.musicShouldLoop(project))
-                .build()
+            val musicGain = project.musicVolume.coerceIn(0f, 1f)
+            if (musicGain > 0f) {
+                if (musicGain != 1f) {
+                    musicBuilder.setEffects(
+                        Effects(listOf(GainAudioProcessor(musicGain)), emptyList()),
+                    )
+                }
+                sequences += EditedMediaItemSequence.Builder(musicBuilder.build())
+                    .setIsLooping(TimelineMath.musicShouldLoop(project))
+                    .build()
+            }
+        }
+
+        val voiceItem = buildVoiceItem(project, voiceWorkDir)
+        if (voiceItem != null) {
+            sequences += EditedMediaItemSequence.Builder(voiceItem).build()
         }
 
         return sequences
+    }
+
+    /**
+     * Prepara la pista de voz en off: escribe un WAV con el relleno y el
+     * recorte que la colocan en su segundo dentro del vídeo, así el mezclador
+     * de secuencias de Media3 la suma al audio original y a la música.
+     *
+     * Sin voz utilizable, o si el WAV no se puede leer, el proyecto se exporta
+     * igual que antes.
+     */
+    private fun buildVoiceItem(project: Project, workDir: File): EditedMediaItem? {
+        val voice = project.voiceover ?: return null
+        if (!voice.isUsable || voice.volume <= 0f) return null
+        val plan = VoiceoverMath.plan(voice, project.outputDurationMs)
+        if (plan.isEmpty) return null
+        val source = File(Uri.parse(voice.activeUri).path ?: return null)
+        val audio = WavFile.read(source) ?: return null
+        val sampleRate = audio.sampleRate
+        val padSamples = (plan.padMs * sampleRate / 1000L).toInt()
+        val skipSamples = (plan.skipMs * sampleRate / 1000L).toInt()
+        val takeSamples = (plan.takeMs * sampleRate / 1000L).toInt()
+        if (takeSamples <= 0) return null
+        val file = File(workDir, "voz-${System.currentTimeMillis()}.wav")
+        if (!WavFile.writeSegment(file, audio.samples, sampleRate, padSamples, skipSamples, takeSamples)) {
+            return null
+        }
+        val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(file)))
+            .setRemoveVideo(true)
+        if (voice.volume != 1f) {
+            builder.setEffects(Effects(listOf(GainAudioProcessor(voice.volume)), emptyList()))
+        }
+        return builder.build()
     }
 }

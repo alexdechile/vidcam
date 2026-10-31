@@ -126,6 +126,7 @@ import com.vidcam.app.model.VideoClip
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowAspect
 import com.vidcam.app.model.VideoWindowMath
+import com.vidcam.app.model.VoiceoverMath
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.hitTestLayers
 import com.vidcam.app.model.resolvedAt
@@ -152,6 +153,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import java.io.File
 import kotlin.math.atan2
 
+/**
+ * Volumen del vídeo mientras se graba la voz en off: se escucha para doblar,
+ * pero lo bastante bajo para que el altavoz no domine la toma.
+ */
+private const val VOICE_MONITOR_SCALE = 0.25f
+
 @Composable
 fun EditorScreen(
     viewModel: EditorViewModel,
@@ -170,6 +177,9 @@ fun EditorScreen(
     val currentProjectName by viewModel.currentProjectName.collectAsStateWithLifecycle()
     val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
     val dirty by viewModel.dirty.collectAsStateWithLifecycle()
+    val voiceRecording by viewModel.voiceRecording.collectAsStateWithLifecycle()
+    val voiceLevel by viewModel.voiceLevel.collectAsStateWithLifecycle()
+    val voiceProcessing by viewModel.voiceProcessing.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -186,6 +196,8 @@ fun EditorScreen(
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var showProjectMenu by remember { mutableStateOf(false) }
     var showExportPreviewDialog by remember { mutableStateOf(false) }
+    var showVoiceSheet by remember { mutableStateOf(false) }
+    var voiceRestartSignal by remember { mutableStateOf(0) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
     var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
@@ -365,6 +377,8 @@ fun EditorScreen(
                         onLayerGesture = viewModel::applyLayerGesture,
                         onWindowGesture = viewModel::updateVideoWindow,
                         onMotionAutoStop = { viewModel.setMotionRecording(false) },
+                        voiceTakeRestart = voiceRestartSignal,
+                        monitorScale = if (voiceRecording) VOICE_MONITOR_SCALE else 1f,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -412,6 +426,9 @@ fun EditorScreen(
                     onAddText = { showTextDialog = true },
                     onAddSticker = { showStickerDialog = true },
                     onMusic = { showMusicSheet = true },
+                    onVoice = { showVoiceSheet = true },
+                    voiceEnabled = project.canExport && project.outputDurationMs > 0L,
+                    voiceTake = project.voiceover != null,
                     motionRecording = motionRecording,
                     onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
                     recordSpeed = recordSpeed,
@@ -439,6 +456,35 @@ fun EditorScreen(
                 )
             }
         }
+    }
+
+    if (showVoiceSheet) {
+        VoiceoverSheet(
+            project = project,
+            recording = voiceRecording,
+            processing = voiceProcessing,
+            level = voiceLevel,
+            totalMs = project.outputDurationMs,
+            onStart = {
+                // La toma se alinea con el montaje: la vista previa vuelve al
+                // principio y se graba desde el segundo cero.
+                voiceRestartSignal++
+                viewModel.startVoiceoverTake()
+            },
+            onStop = viewModel::stopVoiceoverTake,
+            onDismiss = {
+                if (voiceRecording) viewModel.stopVoiceoverTake()
+                showVoiceSheet = false
+            },
+            onToggleDenoise = viewModel::setVoiceoverDenoise,
+            onVolume = viewModel::setVoiceoverVolume,
+            onStartMs = viewModel::setVoiceoverStart,
+            onRemove = viewModel::removeVoiceover,
+            onOriginalVolume = viewModel::setOriginalVolume,
+            onOriginalMuted = viewModel::setOriginalAudioMuted,
+            onMusicVolume = viewModel::setMusicVolume,
+            onMusicEnabled = viewModel::setMusicEnabled,
+        )
     }
 
     if (showMusicSheet) {
@@ -849,6 +895,9 @@ private fun ControlsSection(
     onAddText: () -> Unit,
     onAddSticker: () -> Unit,
     onMusic: () -> Unit,
+    onVoice: () -> Unit,
+    voiceEnabled: Boolean,
+    voiceTake: Boolean,
     motionRecording: Boolean,
     onToggleMotion: () -> Unit,
     recordSpeed: Float,
@@ -934,6 +983,10 @@ private fun ControlsSection(
             OutlinedButton(onClick = onAddSticker) { Text("Sticker") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onMusic) { Text("Música") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onVoice, enabled = voiceEnabled) {
+                Text(if (voiceTake) "Voz ✓" else "Voz")
+            }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onToggleMotion,
@@ -1601,6 +1654,8 @@ private fun TimelinePreview(
     onLayerGesture: (OverlayLayer, Long, Boolean) -> Unit,
     onWindowGesture: (VideoWindow) -> Unit,
     onMotionAutoStop: () -> Unit,
+    voiceTakeRestart: Int = 0,
+    monitorScale: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -1612,6 +1667,10 @@ private fun TimelinePreview(
     }
     val musicPlayer = remember {
         ExoPlayer.Builder(context).build().apply { playWhenReady = true }
+    }
+    // Pista de voz en off: se sincroniza con el vídeo, nunca con su propio reloj.
+    val voicePlayer = remember {
+        ExoPlayer.Builder(context).build().apply { playWhenReady = false }
     }
     val clipsState = rememberUpdatedState(project.clips)
     val outputDurationState = rememberUpdatedState(project.outputDurationMs)
@@ -1651,7 +1710,6 @@ private fun TimelinePreview(
         project.outputDurationMs,
     ) {
         val totalMs = project.outputDurationMs
-        videoPlayer.volume = if (project.originalAudioMuted) 0f else 1f
         val music = project.music
         if (music == null || !project.musicEnabled || totalMs <= 0L) {
             musicPlayer.stop()
@@ -1685,6 +1743,70 @@ private fun TimelinePreview(
 
     val recordingNow by rememberUpdatedState(motionRecording)
     val onMotionAutoStopNow by rememberUpdatedState(onMotionAutoStop)
+
+    // Volúmenes de la mezcla. Durante la toma el monitoreo baja al 25 % para que
+    // el altavoz no se cuele tanto en el micrófono; la voz grabada se silencia
+    // siempre, porque se está reemplazando.
+    LaunchedEffect(
+        project.originalAudioMuted,
+        project.originalVolume,
+        project.musicVolume,
+        project.voiceover?.volume,
+        monitorScale,
+    ) {
+        videoPlayer.volume = if (project.originalAudioMuted) {
+            0f
+        } else {
+            project.originalVolume * monitorScale
+        }
+        musicPlayer.volume = project.musicVolume * monitorScale
+        voicePlayer.volume = if (monitorScale < 1f) 0f else project.voiceover?.volume ?: 0f
+    }
+
+    LaunchedEffect(project.voiceover?.activeUri) {
+        val voice = project.voiceover
+        if (voice == null) {
+            voicePlayer.stop()
+            voicePlayer.clearMediaItems()
+        } else {
+            voicePlayer.setMediaItem(MediaItem.fromUri(voice.activeUri))
+            voicePlayer.prepare()
+        }
+    }
+
+    // Volver al principio al empezar una toma: la voz queda alineada con el
+    // vídeo sin que el usuario tenga que rebobinar a mano.
+    LaunchedEffect(voiceTakeRestart) {
+        if (voiceTakeRestart > 0) {
+            videoPlayer.seekTo(0L)
+            musicPlayer.seekTo(0L)
+            voicePlayer.pause()
+        }
+    }
+
+    val voiceSyncState = rememberUpdatedState(project.voiceover)
+    val monitorState = rememberUpdatedState(monitorScale)
+    LaunchedEffect(videoPlayer, voicePlayer) {
+        while (true) {
+            withFrameNanos { }
+            val voice = voiceSyncState.value
+            val target = voice?.let { VoiceoverMath.filePositionMs(positionMs, it) }
+            when {
+                target == null || monitorState.value < 1f || !videoPlayer.isPlaying -> {
+                    if (voicePlayer.isPlaying) voicePlayer.pause()
+                }
+
+                !voicePlayer.isPlaying -> {
+                    voicePlayer.seekTo(target)
+                    voicePlayer.play()
+                }
+
+                kotlin.math.abs(voicePlayer.currentPosition - target) > 150L -> {
+                    voicePlayer.seekTo(target)
+                }
+            }
+        }
+    }
 
     LaunchedEffect(videoPlayer) {
         var previousPositionMs = 0L
@@ -1769,6 +1891,7 @@ private fun TimelinePreview(
         onDispose {
             videoPlayer.release()
             musicPlayer.release()
+            voicePlayer.release()
         }
     }
 
