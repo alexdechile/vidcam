@@ -2,6 +2,23 @@
 
 ## Último Realizado
 
+- **2026-10-31**: Voz en off con aislación de entorno y volumen por pista (v1.6.0):
+  1. Botón **"Voz"**: doblaje con la vista previa reproduciéndose, medidor de nivel,
+     parada automática al terminar el vídeo, regrabado libre y ajuste de entrada
+     (−2 s recorta el comienzo, +5 s la retrasa).
+  2. **Aislación de entorno**: RNNoise 0.1.1 vendorizado y compilado por JNI/CMake
+     (~128 KB por ABI). La toma se graba cruda a 48 kHz mono con `AudioRecord`
+     (fuente `UNPROCESSED`) y se procesa después: paso alto 85 Hz, RNNoise y
+     nivelación a −1 dBFS; el interruptor compara limpio/crudo sin regrabar.
+  3. **Volumen por pista** (`originalVolume`, `musicVolume`, `VoiceoverTrack.volume`)
+     aplicado al exportar con `GainAudioProcessor`: Media3 1.5 no expone volumen en
+     `EditedMediaItem` y `AudioMixer.setSourceVolume` no es API pública.
+  4. Vista previa con un segundo `ExoPlayer` sincronizado al vídeo; durante la toma
+     el monitoreo baja al 25 % para que el altavoz no domine el micrófono.
+  5. CI instala NDK 27.0.12077973 + CMake 3.22.1; APK release de 3,6 MB firmado,
+     22 tests unitarios nuevos y 2 instrumentados verificados en emulador, y el
+     change OpenSpec `add-voiceover`.
+
 - **2026-10-30**: GIF animados, duración de grabación fijada y vídeos solo con PNG (v1.5.0):
   1. `LayerKind.GIF` + `media/GifAnimation`: el GIF se detecta por cabecera (no por el nombre), se rasteriza en hasta 24 fotogramas de 384 px y se elige el fotograma según el tiempo del vídeo, en vista previa y en el MP4.
   2. `Project.targetDurationMs`: chips "Duración" (5/10/15/30 s) que cortan la grabación sola con cronómetro y definen cuánto dura un vídeo sin clips; nunca se pasa de los 30 s del proyecto.
@@ -53,6 +70,8 @@
 - **Lenguaje y plataforma**: Kotlin 2.0+, Android SDK (minSdk 26, targetSdk 35, compileSdk 35).
 - **UI / Frontend**: Jetpack Compose + Material 3 (con Google Fonts descargables).
 - **Cámara y captura**: AndroidX CameraX (Camera2Interop, VideoCapture, Recorder).
+- **Audio de voz**: `AudioRecord` (PCM 48 kHz mono) + RNNoise 0.1.1 compilado con
+  NDK/CMake y puente JNI (`app/src/main/cpp`).
 - **Procesamiento de vídeo y exportación**: AndroidX Media3 Transformer + VideoCompositor / Effects.
 - **Persistencia**: Kotlinx Serialization JSON.
 - **CI / CD**: GitHub Actions (`ci.yml` para validación y `release.yml` para tags `v*`). Minificación y ofuscación con R8/ProGuard.
