@@ -10,12 +10,20 @@ import com.vidcam.app.audio.VoiceoverRecorder
 import com.vidcam.app.audio.WavFile
 import com.vidcam.app.data.ProjectStore
 import com.vidcam.app.data.SavedProject
+import com.vidcam.app.data.TranscriptSegment
+import com.vidcam.app.data.TranscriptionClient
+import com.vidcam.app.data.TranscriptionResult
+import com.vidcam.app.data.TranscriptionSettings
+import com.vidcam.app.data.TranscriptionSettingsStore
 import com.vidcam.app.export.GallerySaver
 import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
 import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.media.MusicRepository
+import com.vidcam.app.model.Caption
+import com.vidcam.app.model.CaptionMath
+import com.vidcam.app.model.CaptionStyle
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.BackgroundLayer
@@ -84,6 +92,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _voiceProcessing = MutableStateFlow(false)
     val voiceProcessing: StateFlow<Boolean> = _voiceProcessing.asStateFlow()
 
+    private val _transcribing = MutableStateFlow(false)
+    val transcribing: StateFlow<Boolean> = _transcribing.asStateFlow()
+
     private val _canUndo = MutableStateFlow(false)
     val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
 
@@ -105,6 +116,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val musicRepository = MusicRepository(application)
     private val voiceRecorder = VoiceoverRecorder(application)
     private val voiceDir = File(application.filesDir, "voice")
+    private val transcriptionStore = TranscriptionSettingsStore(application)
     private var voiceStopJob: Job? = null
     private val exporter = VideoExporter(application)
     private val projectStore = ProjectStore(File(application.filesDir, "projects"))
@@ -660,6 +672,157 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setOriginalVolume(volume: Float) = update("original-volume") { project ->
         project.copy(originalVolume = volume.coerceIn(0f, 1f))
+    }
+
+    // --- Fundidos y ducking ------------------------------------------------
+
+    fun setMusicFades(fadeInMs: Long, fadeOutMs: Long) = update("music-fades") { project ->
+        val total = project.outputDurationMs
+        project.copy(
+            musicFadeInMs = fadeInMs.coerceIn(0L, total),
+            musicFadeOutMs = fadeOutMs.coerceIn(0L, total),
+        )
+    }
+
+    fun setVoiceFades(fadeInMs: Long, fadeOutMs: Long) = update("voice-fades") { project ->
+        val track = project.voiceover ?: return@update project
+        project.copy(
+            voiceover = track.copy(
+                fadeInMs = fadeInMs.coerceIn(0L, track.durationMs),
+                fadeOutMs = fadeOutMs.coerceIn(0L, track.durationMs),
+            ),
+        )
+    }
+
+    fun setDucking(amount: Float) = update("ducking") { project ->
+        project.copy(duckingAmount = amount.coerceIn(0f, 0.95f))
+    }
+
+    // --- Subtítulos --------------------------------------------------------
+
+    fun addCaption(text: String, startMs: Long, endMs: Long) {
+        if (text.isBlank()) return
+        val total = _project.value.outputDurationMs
+        if (total <= 0L) return
+        val start = startMs.coerceIn(0L, total - 1L)
+        val end = endMs.coerceAtMost(total).coerceAtLeast(start + 1L)
+        val caption = Caption(
+            id = "cap-${System.currentTimeMillis()}",
+            text = text.trim(),
+            startMs = start,
+            endMs = end,
+        )
+        update("caption-add") { project ->
+            project.copy(captions = CaptionMath.normalize(project.captions + caption, total))
+        }
+    }
+
+    fun updateCaption(caption: Caption) = update("caption-edit:${caption.id}") { project ->
+        project.copy(
+            captions = CaptionMath.normalize(
+                project.captions.map { if (it.id == caption.id) caption else it },
+                project.outputDurationMs,
+            ),
+        )
+    }
+
+    fun removeCaption(id: String) = update("caption-remove:$id") { project ->
+        project.copy(captions = project.captions.filterNot { it.id == id })
+    }
+
+    fun setCaptionStyle(style: CaptionStyle) = update("caption-style") { project ->
+        project.copy(captionStyle = style.bounded())
+    }
+
+    fun transcriptionSettings(): TranscriptionSettings = transcriptionStore.load()
+
+    fun saveTranscriptionSettings(settings: TranscriptionSettings) {
+        transcriptionStore.save(settings)
+        _message.value = if (settings.isConfigured) {
+            "Servicio de transcripción guardado"
+        } else {
+            "Falta una URL http(s) del servicio"
+        }
+    }
+
+    /**
+     * Transcribe la toma de voz y la convierte en subtítulos.
+     *
+     * Los tiempos del servicio son relativos al archivo de la toma, así que se
+     * desplazan con la entrada y el recorte que tenga configurados; si el
+     * servicio no entrega tiempos, el parser los reparte sobre la duración.
+     */
+    fun transcribeVoiceover() {
+        if (_transcribing.value) return
+        val project = _project.value
+        val voice = project.voiceover
+        if (voice == null || !voice.isUsable) {
+            _message.value = "Graba primero la voz en off"
+            return
+        }
+        val settings = transcriptionStore.load()
+        if (!settings.isConfigured) {
+            _message.value = "Configura el servicio de transcripción (URL y clave)"
+            return
+        }
+        val path = fileOf(voice.activeUri)
+        if (path == null || !path.exists()) {
+            _message.value = "No se encontró el archivo de la toma"
+            return
+        }
+        _transcribing.value = true
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                TranscriptionClient(settings).transcribe(path, voice.durationMs)
+            }
+            _transcribing.value = false
+            when (result) {
+                is TranscriptionResult.Failure -> _message.value = result.message
+                is TranscriptionResult.Success -> {
+                    val captions = createdCaptions(project, voice, result.segments)
+                    if (captions.isEmpty()) {
+                        _message.value = "La transcripción llegó vacía"
+                    } else {
+                        update("captions-transcribe") { current ->
+                            current.copy(
+                                captions = CaptionMath.normalize(
+                                    current.captions + captions,
+                                    current.outputDurationMs,
+                                ),
+                            )
+                        }
+                        _message.value = "Subtítulos creados: ${captions.size}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun createdCaptions(
+        project: Project,
+        voice: com.vidcam.app.model.VoiceoverTrack,
+        segments: List<TranscriptSegment>,
+    ): List<Caption> {
+        val total = project.outputDurationMs
+        if (total <= 0L) return emptyList()
+        val plan = VoiceoverMath.plan(voice, total)
+        val now = System.currentTimeMillis()
+        return segments.mapIndexedNotNull { index, segment ->
+            val start = plan.padMs + segment.startMs - plan.skipMs
+            val end = plan.padMs + segment.endMs - plan.skipMs
+            val boundedStart = start.coerceIn(0L, (total - 1L).coerceAtLeast(0L))
+            val boundedEnd = end.coerceIn(boundedStart + 1L, total)
+            if (segment.text.isBlank() || boundedEnd <= boundedStart) {
+                null
+            } else {
+                Caption(
+                    id = "cap-$now-$index",
+                    text = segment.text.trim(),
+                    startMs = boundedStart,
+                    endMs = boundedEnd,
+                )
+            }
+        }
     }
 
     fun setMusicVolume(volume: Float) = update("music-volume") { project ->

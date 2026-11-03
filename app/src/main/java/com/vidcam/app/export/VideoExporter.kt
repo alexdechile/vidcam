@@ -25,11 +25,14 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.vidcam.app.audio.EnvelopeAudioProcessor
 import com.vidcam.app.audio.GainAudioProcessor
+import com.vidcam.app.audio.PcmAudio
 import com.vidcam.app.audio.WavFile
 import com.vidcam.app.effect.*
 import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.Project
+import com.vidcam.app.model.AudioMixMath
 import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowAspect
@@ -155,12 +158,19 @@ class VideoExporter(private val context: Context) {
             .apply { mkdirs() }
         voiceTempDir = voiceWorkDir
 
+        // La toma se lee una sola vez: se usa para armar la pista de voz y para
+        // calcular la envolvente del ducking de la música.
+        val voiceAudio = readVoiceAudio(project)
+        val ducking = buildDucking(project, voiceAudio)
+
         val sequences = buildSequences(
             project = project,
             prepared = prepared,
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             voiceWorkDir = voiceWorkDir,
+            voiceAudio = voiceAudio,
+            ducking = ducking,
         )
         val compositionBuilder = Composition.Builder(sequences)
 
@@ -176,9 +186,11 @@ class VideoExporter(private val context: Context) {
         // Ordenar capas por zIndex (menor primero = más abajo) para que
             // la exportación coincida con la vista previa.
             val sortedLayers = project.layers.sortedBy { it.zIndex }
-            val overlays: List<TextureOverlay> = sortedLayers.mapNotNull {
+            val layerOverlays: List<TextureOverlay> = sortedLayers.mapNotNull {
                 LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
             }
+            val overlays: List<TextureOverlay> =
+                layerOverlays + buildCaptionOverlays(project, videoWidth, videoHeight)
         if (overlays.isNotEmpty()) {
             val overlayEffect: Effect = OverlayEffect(overlays)
             compositionBuilder.setEffects(Effects(emptyList(), listOf(overlayEffect)))
@@ -351,6 +363,8 @@ class VideoExporter(private val context: Context) {
         videoWidth: Int,
         videoHeight: Int,
         voiceWorkDir: File,
+        voiceAudio: PcmAudio?,
+        ducking: FloatArray?,
     ): List<EditedMediaItemSequence> {
         val window = project.videoWindow
         val windowAspect = VideoWindowMath.aspectRatio(
@@ -472,9 +486,20 @@ class VideoExporter(private val context: Context) {
                 .setRemoveVideo(true)
             val musicGain = project.musicVolume.coerceIn(0f, 1f)
             if (musicGain > 0f) {
-                if (musicGain != 1f) {
+                val totalMs = project.outputDurationMs
+                val hasFades = project.musicFadeInMs > 0L || project.musicFadeOutMs > 0L
+                val envelope: (Long) -> Float = { positionMs ->
+                    AudioMixMath.trackGain(
+                        positionMs = positionMs,
+                        lengthMs = totalMs,
+                        fadeInMs = project.musicFadeInMs,
+                        fadeOutMs = project.musicFadeOutMs,
+                        ducking = ducking,
+                    ) * musicGain
+                }
+                if (musicGain != 1f || hasFades || ducking != null) {
                     musicBuilder.setEffects(
-                        Effects(listOf(GainAudioProcessor(musicGain)), emptyList()),
+                        Effects(listOf(EnvelopeAudioProcessor(envelope)), emptyList()),
                     )
                 }
                 sequences += EditedMediaItemSequence.Builder(musicBuilder.build())
@@ -483,7 +508,7 @@ class VideoExporter(private val context: Context) {
             }
         }
 
-        val voiceItem = buildVoiceItem(project, voiceWorkDir)
+        val voiceItem = buildVoiceItem(project, voiceWorkDir, voiceAudio)
         if (voiceItem != null) {
             sequences += EditedMediaItemSequence.Builder(voiceItem).build()
         }
@@ -491,21 +516,73 @@ class VideoExporter(private val context: Context) {
         return sequences
     }
 
+    /** Lee la toma de voz del proyecto, si existe y tiene audio. */
+    private fun readVoiceAudio(project: Project): PcmAudio? {
+        val voice = project.voiceover ?: return null
+        if (!voice.isUsable) return null
+        val path = Uri.parse(voice.activeUri).path ?: return null
+        val file = File(path)
+        if (!file.exists()) return null
+        return WavFile.read(file)
+    }
+
+    /**
+     * Envolvente de ducking: cuánto baja la música en cada bloque de 50 ms,
+     * calculada con el nivel de la voz ya colocada en la línea de tiempo.
+     */
+    private fun buildDucking(project: Project, voiceAudio: PcmAudio?): FloatArray? {
+        val voice = project.voiceover ?: return null
+        val amount = project.duckingAmount
+        if (amount <= 0f || !voice.isUsable) return null
+        val audio = voiceAudio ?: return null
+        val plan = VoiceoverMath.plan(voice, project.outputDurationMs)
+        if (plan.isEmpty) return null
+        val peaks = AudioMixMath.timelinePeaks(
+            samples = audio.samples,
+            sampleRate = audio.sampleRate,
+            padMs = plan.padMs,
+            skipMs = plan.skipMs,
+            projectMs = project.outputDurationMs,
+        )
+        return AudioMixMath.duckingEnvelope(peaks, amount)
+    }
+
+    /** Rasteriza los subtítulos visibles como overlays de la composición. */
+    private fun buildCaptionOverlays(
+        project: Project,
+        videoWidth: Int,
+        videoHeight: Int,
+    ): List<TextureOverlay> {
+        if (project.captions.isEmpty()) return emptyList()
+        val style = project.captionStyle.bounded()
+        return project.captions.mapNotNull { caption ->
+            CaptionBitmaps.build(caption, style, videoWidth, videoHeight)?.let { bitmap ->
+                CaptionOverlay(bitmap, caption, style.yFraction)
+            }
+        }
+    }
+
     /**
      * Prepara la pista de voz en off: escribe un WAV con el relleno y el
      * recorte que la colocan en su segundo dentro del vídeo, así el mezclador
      * de secuencias de Media3 la suma al audio original y a la música.
      *
+     * Los fundidos y el volumen se aplican con una envolvente sobre el tramo
+     * audible (después del relleno), no sobre el silencio previo.
+     *
      * Sin voz utilizable, o si el WAV no se puede leer, el proyecto se exporta
      * igual que antes.
      */
-    private fun buildVoiceItem(project: Project, workDir: File): EditedMediaItem? {
+    private fun buildVoiceItem(
+        project: Project,
+        workDir: File,
+        voiceAudio: PcmAudio?,
+    ): EditedMediaItem? {
         val voice = project.voiceover ?: return null
         if (!voice.isUsable || voice.volume <= 0f) return null
         val plan = VoiceoverMath.plan(voice, project.outputDurationMs)
         if (plan.isEmpty) return null
-        val source = File(Uri.parse(voice.activeUri).path ?: return null)
-        val audio = WavFile.read(source) ?: return null
+        val audio = voiceAudio ?: return null
         val sampleRate = audio.sampleRate
         val padSamples = (plan.padMs * sampleRate / 1000L).toInt()
         val skipSamples = (plan.skipMs * sampleRate / 1000L).toInt()
@@ -517,8 +594,19 @@ class VideoExporter(private val context: Context) {
         }
         val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(file)))
             .setRemoveVideo(true)
-        if (voice.volume != 1f) {
-            builder.setEffects(Effects(listOf(GainAudioProcessor(voice.volume)), emptyList()))
+        val hasFades = voice.fadeInMs > 0L || voice.fadeOutMs > 0L
+        if (voice.volume != 1f || hasFades) {
+            val contentMs = plan.takeMs
+            val envelope: (Long) -> Float = { positionMs ->
+                val local = (positionMs - plan.padMs).coerceIn(0L, contentMs)
+                AudioMixMath.fadeGain(
+                    positionMs = local,
+                    lengthMs = contentMs,
+                    fadeInMs = voice.fadeInMs,
+                    fadeOutMs = voice.fadeOutMs,
+                ) * voice.volume
+            }
+            builder.setEffects(Effects(listOf(EnvelopeAudioProcessor(envelope)), emptyList()))
         }
         return builder.build()
     }

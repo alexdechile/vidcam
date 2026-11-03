@@ -43,4 +43,9 @@ target_compile_options(
     -Wno-unused-parameter
 )
 
+# Android 15 puede usar páginas de 16 KB y Google Play lo exige para apps con
+# targetSdk 35 desde noviembre de 2025: sin esto la .so queda alineada a 4 KB y
+# no carga en esos equipos (el resto de librerías del APK ya está a 16 KB).
+target_link_options(rnnoise_jni PRIVATE -Wl,-z,max-page-size=16384)
+
 target_link_libraries(rnnoise_jni PRIVATE log m)

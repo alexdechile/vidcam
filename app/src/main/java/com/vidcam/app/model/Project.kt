@@ -201,6 +201,10 @@ data class VoiceoverTrack(
     val startMs: Long = 0L,
     val durationMs: Long = 0L,
     val volume: Float = 1f,
+    /** Fundido de entrada de la toma, en milisegundos. */
+    val fadeInMs: Long = 0L,
+    /** Fundido de salida de la toma, en milisegundos. */
+    val fadeOutMs: Long = 0L,
 ) {
     /** Archivo que suena: la versión limpia si está activada y disponible. */
     val activeUri: String
@@ -224,6 +228,19 @@ data class Project(
     val musicVolume: Float = 1f,
     /** Voz en off grabada después del montaje. */
     val voiceover: VoiceoverTrack? = null,
+    /** Fundido de entrada de la música, en milisegundos. */
+    val musicFadeInMs: Long = 0L,
+    /** Fundido de salida de la música, en milisegundos. */
+    val musicFadeOutMs: Long = 0L,
+    /**
+     * Cuánto baja la música cuando suena la voz: 0 = nada, 0,7 = al 30 %.
+     * Es el *ducking*, el truco que hace que la voz se entienda sin subirla.
+     */
+    val duckingAmount: Float = 0f,
+    /** Subtítulos quemados en el vídeo. */
+    val captions: List<Caption> = emptyList(),
+    /** Estilo común de todos los subtítulos. */
+    val captionStyle: CaptionStyle = CaptionStyle(),
     val layers: List<OverlayLayer> = emptyList(),
     /** Fondos PNG por tramos, dibujados debajo del vídeo y de las capas. */
     val backgrounds: List<BackgroundLayer> = emptyList(),
@@ -259,6 +276,9 @@ data class Project(
      */
     val hasStillContent: Boolean
         get() = layers.isNotEmpty() || backgrounds.isNotEmpty()
+
+    /** Subtítulo visible en [timeMs], si hay alguno. */
+    fun captionAt(timeMs: Long): Caption? = CaptionMath.activeAt(captions, timeMs)
 
     /** `true` cuando el proyecto se puede exportar (con clips o solo con imágenes). */
     val canExport: Boolean

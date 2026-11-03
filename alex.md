@@ -2,6 +2,22 @@
 
 ## Último Realizado
 
+- **2026-11-02**: Subtítulos con transcripción y mezcla con fundidos y ducking (v1.7.0):
+  1. **Subtítulos quemados**: `Caption`/`CaptionStyle` con tiempos absolutos y
+     estilo global (tamaño, altura, mayúsculas, fondo). Se dibujan con la misma
+     geometría en la vista previa (`CaptionView`) y en el MP4 (`CaptionBitmaps`).
+  2. **Transcripción**: hoja `Subs` → "Transcribir voz" manda la toma a un endpoint
+     Whisper configurable (`/transcribe` del homelab o API de OpenAI) y crea un
+     subtítulo por tramo; sin tiempos, el texto se reparte proporcionalmente.
+  3. **Fundidos** de entrada/salida en música y voz con curva smoothstep, y
+     **ducking** de la música bajo la voz (umbral −42 dBFS, ataque 60 ms,
+     liberación 320 ms). Exportación con `EnvelopeAudioProcessor`; vista previa a
+     20 Hz con la misma curva.
+  4. **Alineación 16 KB** de `librnnoise_jni.so` (`-Wl,-z,max-page-size=16384`):
+     era la única librería del APK a 4 KB, bloqueante en Android 15 y Play.
+  5. 27 tests unitarios nuevos (`CaptionMathTest`, `AudioMixMathTest`,
+     `TranscriptParserTest`) y change OpenSpec `add-captions-and-audio-mix`.
+
 - **2026-10-31**: Voz en off con aislación de entorno y volumen por pista (v1.6.0):
   1. Botón **"Voz"**: doblaje con la vista previa reproduciéndose, medidor de nivel,
      parada automática al terminar el vídeo, regrabado libre y ajuste de entrada

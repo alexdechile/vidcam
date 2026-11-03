@@ -61,6 +61,9 @@ fun VoiceoverSheet(
     onOriginalMuted: (Boolean) -> Unit,
     onMusicVolume: (Float) -> Unit,
     onMusicEnabled: (Boolean) -> Unit,
+    onVoiceFades: (Long, Long) -> Unit,
+    onMusicFades: (Long, Long) -> Unit,
+    onDucking: (Float) -> Unit,
 ) {
     val voice = project.voiceover
     var elapsedMs by remember { mutableStateOf(0L) }
@@ -156,6 +159,19 @@ fun VoiceoverSheet(
                     range = 0f..1f,
                     onChange = onVolume,
                 )
+                val maxFade = totalMs.coerceAtLeast(0L).coerceAtMost(1_500L).toFloat()
+                SliderRow(
+                    label = "Fundido de entrada de la voz (${voice.fadeInMs} ms)",
+                    value = voice.fadeInMs.toFloat(),
+                    range = 0f..maxFade.coerceAtLeast(1f),
+                    onChange = { onVoiceFades(it.toLong(), voice.fadeOutMs) },
+                )
+                SliderRow(
+                    label = "Fundido de salida de la voz (${voice.fadeOutMs} ms)",
+                    value = voice.fadeOutMs.toFloat(),
+                    range = 0f..maxFade.coerceAtLeast(1f),
+                    onChange = { onVoiceFades(voice.fadeInMs, it.toLong()) },
+                )
                 val maxStart = VoiceoverMath.MAX_START_MS.coerceAtMost(totalMs.coerceAtLeast(0L))
                 SliderRow(
                     label = "Entrada ${signedSeconds(voice.startMs)}",
@@ -191,6 +207,26 @@ fun VoiceoverSheet(
                 enabled = !project.originalAudioMuted,
             )
             if (project.music != null) {
+                val maxMusicFade = totalMs.coerceAtLeast(0L).coerceAtMost(3_000L).toFloat()
+                SliderRow(
+                    label = "Fundido de entrada de la música (${project.musicFadeInMs} ms)",
+                    value = project.musicFadeInMs.toFloat(),
+                    range = 0f..maxMusicFade.coerceAtLeast(1f),
+                    onChange = { onMusicFades(it.toLong(), project.musicFadeOutMs) },
+                )
+                SliderRow(
+                    label = "Fundido de salida de la música (${project.musicFadeOutMs} ms)",
+                    value = project.musicFadeOutMs.toFloat(),
+                    range = 0f..maxMusicFade.coerceAtLeast(1f),
+                    onChange = { onMusicFades(project.musicFadeInMs, it.toLong()) },
+                )
+                SliderRow(
+                    label = "Bajar la música con la voz (${(project.duckingAmount * 100).toInt()} %)",
+                    value = project.duckingAmount,
+                    range = 0f..0.9f,
+                    onChange = onDucking,
+                    enabled = voice != null,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(project.music.title, maxLines = 1)

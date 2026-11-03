@@ -125,8 +125,12 @@ import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowAspect
+import com.vidcam.app.audio.WavFile
+import com.vidcam.app.model.AudioMixMath
+import com.vidcam.app.model.CaptionStyle
 import com.vidcam.app.model.VideoWindowMath
 import com.vidcam.app.model.VoiceoverMath
+import com.vidcam.app.model.VoiceoverTrack
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.hitTestLayers
 import com.vidcam.app.model.resolvedAt
@@ -180,6 +184,7 @@ fun EditorScreen(
     val voiceRecording by viewModel.voiceRecording.collectAsStateWithLifecycle()
     val voiceLevel by viewModel.voiceLevel.collectAsStateWithLifecycle()
     val voiceProcessing by viewModel.voiceProcessing.collectAsStateWithLifecycle()
+    val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -197,6 +202,7 @@ fun EditorScreen(
     var showProjectMenu by remember { mutableStateOf(false) }
     var showExportPreviewDialog by remember { mutableStateOf(false) }
     var showVoiceSheet by remember { mutableStateOf(false) }
+    var showCaptionsSheet by remember { mutableStateOf(false) }
     var voiceRestartSignal by remember { mutableStateOf(0) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
@@ -429,6 +435,9 @@ fun EditorScreen(
                     onVoice = { showVoiceSheet = true },
                     voiceEnabled = project.canExport && project.outputDurationMs > 0L,
                     voiceTake = project.voiceover != null,
+                    onCaptions = { showCaptionsSheet = true },
+                    captionsEnabled = project.outputDurationMs > 0L,
+                    captionCount = project.captions.size,
                     motionRecording = motionRecording,
                     onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
                     recordSpeed = recordSpeed,
@@ -484,6 +493,24 @@ fun EditorScreen(
             onOriginalMuted = viewModel::setOriginalAudioMuted,
             onMusicVolume = viewModel::setMusicVolume,
             onMusicEnabled = viewModel::setMusicEnabled,
+            onVoiceFades = viewModel::setVoiceFades,
+            onMusicFades = viewModel::setMusicFades,
+            onDucking = viewModel::setDucking,
+        )
+    }
+
+    if (showCaptionsSheet) {
+        CaptionsSheet(
+            project = project,
+            transcribing = transcribing,
+            onDismiss = { showCaptionsSheet = false },
+            onTranscribe = viewModel::transcribeVoiceover,
+            onAdd = viewModel::addCaption,
+            onUpdate = viewModel::updateCaption,
+            onRemove = viewModel::removeCaption,
+            onStyle = viewModel::setCaptionStyle,
+            loadSettings = viewModel::transcriptionSettings,
+            onSaveSettings = viewModel::saveTranscriptionSettings,
         )
     }
 
@@ -898,6 +925,9 @@ private fun ControlsSection(
     onVoice: () -> Unit,
     voiceEnabled: Boolean,
     voiceTake: Boolean,
+    onCaptions: () -> Unit,
+    captionsEnabled: Boolean,
+    captionCount: Int,
     motionRecording: Boolean,
     onToggleMotion: () -> Unit,
     recordSpeed: Float,
@@ -986,6 +1016,10 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onVoice, enabled = voiceEnabled) {
                 Text(if (voiceTake) "Voz ✓" else "Voz")
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onCaptions, enabled = captionsEnabled) {
+                Text(if (captionCount > 0) "Subs $captionCount" else "Subs")
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
@@ -1744,23 +1778,58 @@ private fun TimelinePreview(
     val recordingNow by rememberUpdatedState(motionRecording)
     val onMotionAutoStopNow by rememberUpdatedState(onMotionAutoStop)
 
-    // Volúmenes de la mezcla. Durante la toma el monitoreo baja al 25 % para que
-    // el altavoz no se cuele tanto en el micrófono; la voz grabada se silencia
-    // siempre, porque se está reemplazando.
+    // Volúmenes de la mezcla, con fundidos y ducking. Se recalculan 20 veces por
+    // segundo: es lo mismo que hace la exportación con una envolvente, y así la
+    // vista previa suena como el MP4. Durante la toma el monitoreo baja al 25 %
+    // y la voz grabada se silencia, porque se está reemplazando.
+    val duckingState = remember { mutableStateOf<FloatArray?>(null) }
+    LaunchedEffect(project.voiceover?.activeUri, project.duckingAmount, project.outputDurationMs) {
+        val voice = project.voiceover
+        duckingState.value = if (voice == null || project.duckingAmount <= 0f) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { computeDucking(voice, project) }
+        }
+    }
     LaunchedEffect(
         project.originalAudioMuted,
         project.originalVolume,
         project.musicVolume,
+        project.musicFadeInMs,
+        project.musicFadeOutMs,
         project.voiceover?.volume,
+        project.voiceover?.fadeInMs,
+        project.voiceover?.fadeOutMs,
         monitorScale,
+        duckingState.value,
     ) {
-        videoPlayer.volume = if (project.originalAudioMuted) {
-            0f
-        } else {
-            project.originalVolume * monitorScale
+        val totalMs = project.outputDurationMs
+        while (true) {
+            val position = positionMs
+            videoPlayer.volume = if (project.originalAudioMuted) {
+                0f
+            } else {
+                project.originalVolume * monitorScale
+            }
+            val musicGain = AudioMixMath.trackGain(
+                positionMs = position,
+                lengthMs = totalMs,
+                fadeInMs = project.musicFadeInMs,
+                fadeOutMs = project.musicFadeOutMs,
+                ducking = duckingState.value,
+            ) * project.musicVolume * monitorScale
+            musicPlayer.volume = musicGain.coerceIn(0f, 1f)
+            val voice = project.voiceover
+            voicePlayer.volume = if (voice == null || monitorScale < 1f) {
+                0f
+            } else {
+                val plan = VoiceoverMath.plan(voice, totalMs)
+                val local = (position - plan.padMs).coerceIn(0L, plan.takeMs)
+                AudioMixMath.fadeGain(local, plan.takeMs, voice.fadeInMs, voice.fadeOutMs) *
+                    voice.volume
+            }
+            delay(50L)
         }
-        musicPlayer.volume = project.musicVolume * monitorScale
-        voicePlayer.volume = if (monitorScale < 1f) 0f else project.voiceover?.volume ?: 0f
     }
 
     LaunchedEffect(project.voiceover?.activeUri) {
@@ -2260,6 +2329,15 @@ private fun TimelinePreview(
                 }
             }
 
+            project.captionAt(positionMs)?.let { caption ->
+                CaptionView(
+                    caption = caption,
+                    style = project.captionStyle.bounded(),
+                    containerWidth = containerWidth,
+                    containerHeight = containerHeight,
+                )
+            }
+
             if (motionRecording) {
                 Surface(
                     color = Color.Red.copy(alpha = 0.85f),
@@ -2278,6 +2356,21 @@ private fun TimelinePreview(
             }
         }
     }
+}
+
+/** Envolvente de ducking de la vista previa, calculada con la toma de voz. */
+private fun computeDucking(voice: VoiceoverTrack, project: Project): FloatArray? {
+    val path = Uri.parse(voice.activeUri).path ?: return null
+    val audio = WavFile.read(File(path)) ?: return null
+    val plan = VoiceoverMath.plan(voice, project.outputDurationMs)
+    val peaks = AudioMixMath.timelinePeaks(
+        samples = audio.samples,
+        sampleRate = audio.sampleRate,
+        padMs = plan.padMs,
+        skipMs = plan.skipMs,
+        projectMs = project.outputDurationMs,
+    )
+    return AudioMixMath.duckingEnvelope(peaks, project.duckingAmount)
 }
 
 @Composable

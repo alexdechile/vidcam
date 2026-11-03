@@ -8,8 +8,9 @@ pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
 (H.264/AAC) con guardado en galería y hoja de compartir, recepción de vídeos,
 imágenes y música compartidos desde otras apps, capas GIF animadas, vídeos
-hechos solo con imágenes y voz en off (doblaje) con aislación de entorno y
-volumen por pista.
+hechos solo con imágenes, voz en off (doblaje) con aislación de entorno y
+volumen por pista, subtítulos quemados con transcripción y mezcla con fundidos
+y ducking.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
@@ -18,8 +19,9 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 `openspec/changes/add-clip-speed/`,
 `openspec/changes/add-background-and-video-window/`,
 `openspec/changes/add-shared-file-intake/`,
-`openspec/changes/add-gif-and-still-videos/` y
-`openspec/changes/add-voiceover/`.
+`openspec/changes/add-gif-and-still-videos/`,
+`openspec/changes/add-voiceover/` y
+`openspec/changes/add-captions-and-audio-mix/`.
 
 ## Voz en off
 
@@ -41,6 +43,29 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 - La vista previa reproduce la voz con un segundo `ExoPlayer` sincronizado al
   vídeo; mientras se graba, la voz existente se silencia para no realimentar el
   micrófono.
+
+## Subtítulos
+
+- **Editor**: botón `Subs`. Se agregan a mano con su tramo de tiempo, se editan
+  con dos sliders (entrada y salida) y se quitan de uno en uno. El estilo es
+  común: tamaño, altura en pantalla, MAYÚSCULAS y fondo detrás del texto.
+- **Transcripción**: `Transcribir voz` envía la toma de voz en off a un endpoint
+  compatible con Whisper y crea un subtítulo por tramo. Se configura con
+  `Servicio…`: URL (`http://mi-homelab:3007/transcribe` o
+  `https://api.openai.com/v1/audio/transcriptions`), clave opcional, idioma y
+  modelo. Si el servicio solo devuelve texto, se reparte proporcionalmente a la
+  duración de la toma.
+- La vista previa y el MP4 usan las mismas fracciones del fotograma, así que el
+  subtítulo sale del mismo tamaño y en el mismo sitio.
+
+## Audio: fundidos y ducking
+
+- **Fundidos**: entrada y salida suaves (smoothstep) para música y voz, en la
+  hoja de voz. En la exportación se aplican como envolvente cada 50 ms
+  (`EnvelopeAudioProcessor`); en la vista previa se recalcula el volumen a 20 Hz.
+- **Ducking**: la música baja sola mientras hay voz (umbral −42 dBFS, ataque
+  60 ms, liberación 320 ms) y vuelve en los silencios. El nivel de atenuación es
+  un slider de 0 a 90 %.
 
 ## Fondos y ventana de vídeo
 
