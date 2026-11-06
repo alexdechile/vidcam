@@ -17,6 +17,11 @@
      cuando el proyecto no tiene clips (el fondo es la pista de vídeo).
   5. Retrocompatible: `BackgroundLayer.kenBurns = NINGUNO` por defecto, con
      tests JVM del cálculo y del JSON.
+  6. **v1.8.1**: el fallo "asset loader error" al exportar con imagen fija se
+     atacó moviendo el Ken Burns al propio elemento (`MatrixTransformation`) en
+     vez de a los ajustes del compositor: sin clips, Media3 usa
+     `SingleInputVideoGraph` y nunca crea compositor, así que el zoom no salía.
+     Ahora la exportación muestra el código de Media3 y la causa del error.
 
 - **2026-11-02**: Subtítulos con transcripción y mezcla con fundidos y ducking (v1.7.0):
   1. **Subtítulos quemados**: `Caption`/`CaptionStyle` con tiempos absolutos y

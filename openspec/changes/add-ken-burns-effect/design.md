@@ -109,31 +109,41 @@ impares ⇒ `ALEJAR`. Así una secuencia de fondos alterna el movimiento (efecto
 montajes de fotos) y una sola imagen hace un acercamiento. `KenBurnsMath.indexOf` define ese orden
 de la misma forma para la vista previa y para la exportación.
 
-### D5: Exportación por fotograma en el compositor
+### D5: Exportación como efecto del propio elemento
 
-`WindowCompositorSettings` recibe la lista de fondos preparados (`PreparedBackdrop`) y, para las
-entradas que no son el vídeo, busca el fondo activo en `presentationTimeUs` y devuelve:
+`VideoExporter` construye cada fondo preparado (`PreparedBackdrop`) como un
+`EditedMediaItem` y, cuando el fondo tiene Ken Burns, le agrega una
+`KenBurnsTransformation` (un `MatrixTransformation`) como efecto de vídeo del
+elemento:
 
 ```
 setScale(kb.scale, kb.scale)
-setBackgroundFrameAnchor(kb.offsetX * 2, kb.offsetY * -2)
-setOverlayFrameAnchor(0, 0)
+postTranslate(ndcOffsetX, ndcOffsetY)   // NDC: -1..1, eje Y hacia arriba
 ```
 
-Media3 trabaja en NDC (-1..1, eje Y hacia arriba), de ahí el factor 2 y la inversión del eje
-vertical. Sin efecto (`NINGUNO`) el resultado es escala 1 y ancla 0, exactamente lo que hacía el
-compositor antes, así que los proyectos sin Ken Burns no cambian.
+Media3 trabaja en NDC (-1..1, eje Y hacia arriba), de ahí que el desplazamiento
+normalizado se duplique y se invierta el eje vertical; `KenBurnsMath` expone
+`ndcOffsetX`/`ndcOffsetY` para que esa conversión también esté probada.
 
-Dos cambios necesarios en el exportador:
+Por qué no con `VideoCompositorSettings` (la primera implementación, que hubo
+que corregir):
 
-- **Entrada primaria sin clips**: en un proyecto de solo imágenes la secuencia de fondos es la
-  entrada 0, así que el compositor se configura siempre que hay fondos preparados (antes solo con
-  clips) y la ventana de vídeo solo se aplica cuando `project.clips.isNotEmpty()`. Con clips el
-  comportamiento es idéntico al anterior; sin clips la salida sigue siendo del tamaño del
-  fotograma y el único cambio es el transform del fondo.
-- **Ventana del Ken Burns**: `PreparedBackdrop` guarda el tramo del compositor y, por separado, la
-  ventana del fondo original, para que un tramo recortado por un solape de `zIndex` no desfase el
-  zoom respecto de la vista previa (que usa la ventana del fondo).
+- **Sin clips no hay compositor.** `MultipleInputVideoGraph` —el único que crea
+  un `DefaultVideoCompositor`— solo se usa cuando hay más de una secuencia con
+  vídeo (`hasMultipleConcurrentVideoTracks()`). En un vídeo hecho solo con
+  imágenes la secuencia de fondos es la única pista de vídeo, así que los
+  ajustes del compositor se ignoraban silenciosamente y el zoom no salía en el
+  MP4. Como efecto del elemento funciona en los dos casos.
+- **Menos superficie de riesgo.** El compositor queda exactamente como estaba
+  (solo la ventana de vídeo), sin transformaciones por fotograma en un camino
+  que ya funcionaba.
+- La transformación recibe en algunos casos el tiempo del elemento y en otros el
+  de la composición. Para no depender de eso, cada instancia fija el origen en
+  su primer fotograma y mide desde ahí; por eso hay **una instancia por fondo**.
+
+`PreparedBackdrop` guarda además la ventana del Ken Burns del fondo original,
+separada del tramo que cubre en la secuencia, para que un tramo recortado por un
+solape de `zIndex` no desfase el zoom respecto de la vista previa.
 
 ### D6: Vista previa en Compose
 
@@ -146,8 +156,8 @@ translationX = kb.offsetX * ancho
 translationY = kb.offsetY * alto
 ```
 
-El `graphicsLayer` escala alrededor del centro, que es el mismo origen que usa el compositor para
-la textura del fondo, y la caja contenedora ya recorta (`clipToBounds`). Se reutiliza en
+El `graphicsLayer` escala alrededor del centro, que es el mismo origen que usa la transformación del
+exportador, y la caja contenedora ya recorta (`clipToBounds`). Se reutiliza en
 `TimelinePreview` (con `positionMs`, que se refresca por fotograma durante la reproducción y
 también en el reloj de los vídeos sin clips) y en `ExportPreviewDialog` (con el instante del
 resumen).

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -80,6 +81,10 @@ private data class PreparedBackdrop(
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class VideoExporter(private val context: Context) {
+
+    private companion object {
+        const val TAG = "VidCamExport"
+    }
 
     interface Callback {
         fun onProgress(percent: Int)
@@ -189,12 +194,11 @@ class VideoExporter(private val context: Context) {
         )
         val compositionBuilder = Composition.Builder(sequences)
 
-        if (prepared != null) {
+        if (prepared != null && project.clips.isNotEmpty()) {
             val settings = buildCompositorSettings(
                 project = project,
                 videoWidth = videoWidth,
                 videoHeight = videoHeight,
-                prepared = prepared,
             )
             compositionBuilder.setVideoCompositorSettings(settings)
         }
@@ -228,7 +232,8 @@ class VideoExporter(private val context: Context) {
                 exportException: ExportException,
             ) {
                 stopPolling()
-                callback.onError(exportException.message ?: "Error desconocido al exportar")
+                Log.e(TAG, "Fallo al exportar", exportException)
+                callback.onError(describe(exportException))
             }
         }
 
@@ -256,8 +261,30 @@ class VideoExporter(private val context: Context) {
             built.start(composition, output.absolutePath)
         } catch (e: Exception) {
             stopPolling()
-            callback.onError(e.message ?: "No se pudo iniciar la exportación")
+            Log.e(TAG, "No se pudo iniciar la exportación", e)
+            callback.onError(describe(e))
         }
+    }
+
+    /**
+     * Mensaje de error con el nombre del código de Media3 y las causas
+     * encadenadas: `ExportException` suele traer solo "Asset loader error" y el
+     * motivo real (MIME no soportado, archivo ilegible, códec, mezcla de
+     * `ColorInfo`) queda en la causa.
+     */
+    private fun describe(exception: Throwable): String {
+        val head = buildString {
+            append(exception.message?.trim()?.takeIf { it.isNotEmpty() } ?: "Error al exportar")
+            if (exception is ExportException) {
+                append(" [").append(exception.getErrorCodeName()).append(']')
+            }
+        }
+        val causes = generateSequence(exception.cause) { it.cause }
+            .take(3)
+            .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
+            .toList()
+        return (listOf(head) + causes).joinToString(" · ").take(320)
     }
 
     private fun stopPolling() {
@@ -331,14 +358,11 @@ class VideoExporter(private val context: Context) {
         project: Project,
         videoWidth: Int,
         videoHeight: Int,
-        prepared: PreparedComposition,
     ): VideoCompositorSettings =
         WindowCompositorSettings(
             outputWidth = videoWidth,
             outputHeight = videoHeight,
             window = project.videoWindow,
-            hasVideoClips = project.clips.isNotEmpty(),
-            backdrops = prepared.backdrops,
         )
 
     /**
@@ -353,19 +377,13 @@ class VideoExporter(private val context: Context) {
         private val outputWidth: Int,
         private val outputHeight: Int,
         private val window: VideoWindow,
-        /**
-         * `true` cuando la entrada 0 son los clips de vídeo. Sin clips, la
-         * entrada 0 es la secuencia de fondos y no hay ventana que mover.
-         */
-        private val hasVideoClips: Boolean,
-        private val backdrops: List<PreparedBackdrop>,
     ) : VideoCompositorSettings {
 
         override fun getOutputSize(inputSizes: List<Size>): Size =
             Size(outputWidth, outputHeight)
 
         override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings =
-            if (hasVideoClips && inputId == 0) {
+            if (inputId == 0) {
                 // Entrada primaria: la ventana de vídeo, encima del fondo.
                 OverlaySettings.Builder()
                     .setBackgroundFrameAnchor(
@@ -381,36 +399,15 @@ class VideoExporter(private val context: Context) {
                     .setRotationDegrees(-window.rotationDeg)
                     .build()
             } else {
-                // Fondos: ya están recortados al tamaño del fotograma, así que la
-                // única transformación es el Ken Burns evaluado en este instante.
-                backdropSettings(presentationTimeUs / 1000L)
+                // Fondos ya recortados al tamaño del fotograma: escala 1. El Ken
+                // Burns de cada fondo va como efecto del propio elemento, antes
+                // de llegar al compositor (ver `KenBurnsTransformation`).
+                OverlaySettings.Builder()
+                    .setBackgroundFrameAnchor(0f, 0f)
+                    .setOverlayFrameAnchor(0f, 0f)
+                    .setScale(1f, 1f)
+                    .build()
             }
-
-        /**
-         * Ajustes del fondo activo en [timeMs]. El desplazamiento del Ken Burns
-         * está normalizado (1 = ancho del lienzo) y Media3 trabaja en NDC
-         * (-1..1 con el eje Y hacia arriba), por eso se duplica y el eje vertical
-         * se invierte. Sin efecto queda escala 1 y sin desplazamiento, que es el
-         * comportamiento anterior.
-         */
-        private fun backdropSettings(timeMs: Long): OverlaySettings {
-            val active = backdrops.firstOrNull { timeMs >= it.startMs && timeMs < it.endMs }
-                ?: backdrops.lastOrNull()
-            val kenBurns = active?.let {
-                KenBurnsMath.transformAt(
-                    mode = it.kenBurns,
-                    index = it.kenBurnsIndex,
-                    startMs = it.kenBurnsStartMs,
-                    endMs = it.kenBurnsEndMs,
-                    timeMs = timeMs,
-                )
-            } ?: KenBurnsMath.SIN_EFECTO
-            return OverlaySettings.Builder()
-                .setBackgroundFrameAnchor(kenBurns.offsetX * 2f, kenBurns.offsetY * -2f)
-                .setOverlayFrameAnchor(0f, 0f)
-                .setScale(kenBurns.scale, kenBurns.scale)
-                .build()
-        }
     }
 
     private fun buildSequences(
@@ -514,11 +511,29 @@ class VideoExporter(private val context: Context) {
         if (prepared != null) {
             val backdropItems = prepared.backdrops.map { backdrop ->
                 val durationMs = (backdrop.endMs - backdrop.startMs).coerceAtLeast(1L)
-                EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(backdrop.file)))
+                val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(backdrop.file)))
                     .setDurationUs(durationMs * 1000L)
                     .setFrameRate(30)
                     .setRemoveAudio(true)
-                    .build()
+                if (KenBurnsMath.isActive(backdrop.kenBurns)) {
+                    // Una instancia por elemento: guarda el origen de su propio
+                    // reloj, así que no se puede compartir entre fondos.
+                    builder.setEffects(
+                        Effects(
+                            emptyList(),
+                            listOf(
+                                KenBurnsTransformation(
+                                    mode = backdrop.kenBurns,
+                                    index = backdrop.kenBurnsIndex,
+                                    itemStartMs = backdrop.startMs,
+                                    startMs = backdrop.kenBurnsStartMs,
+                                    endMs = backdrop.kenBurnsEndMs,
+                                ),
+                            ),
+                        ),
+                    )
+                }
+                builder.build()
             }
             if (backdropItems.isNotEmpty()) {
                 sequences += EditedMediaItemSequence.Builder(backdropItems).build()

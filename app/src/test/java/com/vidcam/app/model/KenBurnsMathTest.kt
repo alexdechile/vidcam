@@ -132,4 +132,22 @@ class KenBurnsMathTest {
 
         assertEquals(KenBurnsMode.NINGUNO, fondo.kenBurns)
     }
+
+    @Test
+    fun `los desplazamientos NDC duplican el normalizado e invierten la Y`() {
+        val transform = KenBurnsMath.KenBurnsTransform(scale = 1.14f, offsetX = 0.07f, offsetY = -0.07f)
+
+        assertEquals(0.14f, KenBurnsMath.ndcOffsetX(transform), 0.0001f)
+        assertEquals(0.14f, KenBurnsMath.ndcOffsetY(transform), 0.0001f)
+    }
+
+    @Test
+    fun `el desplazamiento NDC nunca supera el zoom disponible`() {
+        for (step in 0..100) {
+            val transform = KenBurnsMath.transformAt(KenBurnsMode.ACERCAR, 0, 0L, 10_000L, step * 100L)
+
+            assertTrue(abs(KenBurnsMath.ndcOffsetX(transform)) <= transform.scale - 1f + 0.0001f)
+            assertTrue(abs(KenBurnsMath.ndcOffsetY(transform)) <= transform.scale - 1f + 0.0001f)
+        }
+    }
 }

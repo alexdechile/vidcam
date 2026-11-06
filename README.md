@@ -97,10 +97,14 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
   (`|desplazamiento| <= (escala - 1) / 2`), así que la imagen siempre cubre el
   lienzo y nunca aparecen franjas negras.
 - `model/KenBurnsMath.kt` concentra el cálculo; la vista previa (Compose) y la
-  exportación (ajustes del compositor de Media3 por fotograma) lo usan con el
-  mismo resultado. Funciona igual en un proyecto con clips y en un vídeo hecho
-  solo con imágenes: en ese caso el propio fondo hace de pista de vídeo y el
-  zoom se aplica sobre él.
+  exportación (`KenBurnsTransformation`, un efecto de vídeo del propio PNG de
+  fondo, evaluado por fotograma) lo usan con el mismo resultado. Funciona igual
+  en un proyecto con clips y en un vídeo hecho solo con imágenes: en ese caso el
+  propio fondo hace de pista de vídeo y el zoom se aplica sobre él, sin depender
+  del compositor de Media3 (que solo existe cuando hay vídeo + fondo).
+- Si una exportación falla, el aviso incluye el código de Media3 y la causa
+  encadenada (`Asset loader error [ERROR_CODE_…] · …`), no solo el mensaje
+  genérico.
 
 ## Requisitos
 

@@ -47,11 +47,12 @@ tiempo real y no sirve para un fondo que debe llenar el lienzo.
   `BackgroundLayer.kenBurns` con valor por defecto `NINGUNO`.
 - **Cálculo puro**: nuevo `model/KenBurnsMath.kt` (`transformAt`, `resolveMode`, `progressAt`,
   `indexOf`, `zoomPerSecond`), sin dependencias de Android ni de Media3.
-- **Exportación**: `VideoExporter.kt` resuelve el Ken Burns del fondo activo en cada fotograma y
-  lo entrega como `OverlaySettings` (escala y ancla) al compositor de Media3. El compositor pasa a
-  configurarse siempre que hay fondos preparados —también sin clips—, y en ese caso la entrada 0
-  es el fondo, no una ventana de vídeo. El fondo preparado guarda además la ventana del Ken Burns
-  para que un tramo recortado por un solape no desfase el zoom.
+- **Exportación**: `VideoExporter.kt` aplica el Ken Burns de cada fondo como efecto de vídeo de su
+  propio elemento (`KenBurnsTransformation`, un `MatrixTransformation`), evaluado por fotograma
+  con la misma cuenta que la vista previa. Así funciona igual con clips y en un vídeo hecho solo
+  con imágenes, donde el compositor de Media3 no existe porque hay una sola secuencia de vídeo.
+  El compositor de la ventana queda igual que antes. Los errores de exportación ahora muestran el
+  código de Media3 y la causa encadenada, en vez del genérico "Asset loader error".
 - **Editor**: `EditorViewModel` agrega `setBackgroundKenBurns` (clave de deshacer
   `background-ken-burns:<id>`) y los fondos nuevos entran con `AUTOMATICO`; `EditorScreen.kt`
   dibuja el fondo con `KenBurnsBackground` en la vista previa y en el resumen de exportación, y

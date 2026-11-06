@@ -117,4 +117,14 @@ object KenBurnsMath {
         val spanMs = (endMs - startMs).coerceAtLeast(1L)
         return ZOOM_AMOUNT / (spanMs.toFloat() / 1000f)
     }
+
+    /**
+     * Desplazamiento horizontal en NDC (-1..1, origen en el centro), que es el
+     * espacio en el que trabaja Media3. El lienzo normalizado usa 1 = ancho
+     * completo, así que el factor es 2.
+     */
+    fun ndcOffsetX(transform: KenBurnsTransform): Float = transform.offsetX * 2f
+
+    /** Desplazamiento vertical en NDC; el eje Y de Media3 apunta hacia arriba. */
+    fun ndcOffsetY(transform: KenBurnsTransform): Float = transform.offsetY * -2f
 }

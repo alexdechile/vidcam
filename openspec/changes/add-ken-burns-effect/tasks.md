@@ -12,12 +12,17 @@
 ## 2. Exportación
 
 - [x] 2.1 Guardar en `PreparedBackdrop` el modo, la ventana del Ken Burns y el índice de la imagen
-- [x] 2.2 Resolver el transform del fondo activo por fotograma en `WindowCompositorSettings` y
-      entregarlo como `OverlaySettings` (escala y ancla en NDC)
-- [x] 2.3 Configurar el compositor también en los proyectos sin clips, donde la secuencia de fondos
-      es la entrada 0, y aplicar la ventana de vídeo solo cuando hay clips
-- [x] 2.4 Verificar que sin efecto los ajustes equivalen a los anteriores (escala 1, ancla 0)
+- [x] 2.2 Aplicar el Ken Burns como efecto del propio elemento (`KenBurnsTransformation`,
+      `MatrixTransformation` con escala y desplazamiento en NDC), evaluado por fotograma
+- [x] 2.3 Funcionar también en los proyectos sin clips, donde la secuencia de fondos es la única
+      pista de vídeo y no existe el compositor de Media3 (una instancia por fondo, con su origen de
+      reloj propio)
+- [x] 2.4 Verificar que sin efecto el elemento de fondo queda igual que antes (sin efectos)
 - [x] 2.5 Usar la ventana del fondo original (no el tramo recortado por solapes) para el zoom
+- [x] 2.6 Convertir los desplazamientos a NDC en `KenBurnsMath` (`ndcOffsetX`/`ndcOffsetY`) y
+      probarlos en JVM
+- [x] 2.7 Reportar los errores de exportación con el código de Media3 y las causas encadenadas, en
+      vez del mensaje genérico "Asset loader error"
 
 ## 3. Editor
 
@@ -45,3 +50,11 @@
 - [ ] 5.3 Probar con tramos de distinta duración (4 s y 20 s) para confirmar que el movimiento es
       más lento en el vídeo más largo
 - [ ] 5.4 Probar un vídeo solo con imágenes (sin clips) de 10 s con un fondo en `Ken Burns auto`
+- [x] 5.5 Cambiar la exportación del Ken Burns de `VideoCompositorSettings` a un efecto del propio
+      elemento, tras el fallo reportado al exportar con imagen fija: sin clips Media3 no crea
+      compositor (`hasMultipleConcurrentVideoTracks()` es `false`), así que el zoom no salía en el
+      MP4 y además se tocaba un camino que no hacía falta
+- [x] 5.6 Mostrar en el aviso el código de Media3 y la causa encadenada, para diagnosticar los
+      `ExportException` que antes solo decían "Asset loader error"
+- [ ] 5.7 Reproducir en dispositivo la exportación con imagen fija y confirmar que el aviso ya no
+      aparece; si apareciera, leer el código y la causa que ahora muestra
