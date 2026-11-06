@@ -2,7 +2,7 @@
 
 ## Último Realizado
 
-- **2026-11-06**: Efecto Ken Burns en imágenes fijas (change OpenSpec
+- **2026-11-06**: Efecto Ken Burns en imágenes fijas (v1.8.0, change OpenSpec
   `add-ken-burns-effect`):
   1. Cada fondo PNG elige su zoom con chips **Sin zoom / Zoom in / Zoom out /
      Ken Burns auto**; un fondo nuevo entra con el automático, que alterna
