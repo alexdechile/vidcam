@@ -31,6 +31,8 @@ import com.vidcam.app.audio.PcmAudio
 import com.vidcam.app.audio.WavFile
 import com.vidcam.app.effect.*
 import com.vidcam.app.media.MediaProbe
+import com.vidcam.app.model.KenBurnsMath
+import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.AudioMixMath
 import com.vidcam.app.model.TimelineMath
@@ -41,6 +43,25 @@ import com.vidcam.app.model.VoiceoverMath
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
+
+/**
+ * Imagen de fondo ya preparada para el compositor.
+ *
+ * [startMs] y [endMs] son el tramo del compositor (el hueco que esa imagen cubre
+ * en la secuencia de fondos); [kenBurns] y su ventana `kenBurnsStartMs..
+ * kenBurnsEndMs` son los del fondo original, para que el zoom de la exportación
+ * sea idéntico al de la vista previa aunque el tramo se haya recortado por un
+ * solape.
+ */
+private data class PreparedBackdrop(
+    val file: File,
+    val startMs: Long,
+    val endMs: Long,
+    val kenBurns: KenBurnsMode = KenBurnsMode.NINGUNO,
+    val kenBurnsStartMs: Long = 0L,
+    val kenBurnsEndMs: Long = 0L,
+    val kenBurnsIndex: Int = 0,
+)
 
 /**
  * Motor de exportación basado en Media3 Transformer. Compone la línea de
@@ -65,12 +86,6 @@ class VideoExporter(private val context: Context) {
         fun onSuccess(file: File)
         fun onError(message: String)
     }
-
-    private data class PreparedBackdrop(
-        val file: File,
-        val startMs: Long,
-        val endMs: Long,
-    )
 
     private data class PreparedComposition(
         val dir: File,
@@ -174,11 +189,12 @@ class VideoExporter(private val context: Context) {
         )
         val compositionBuilder = Composition.Builder(sequences)
 
-        if (prepared != null && project.clips.isNotEmpty()) {
+        if (prepared != null) {
             val settings = buildCompositorSettings(
                 project = project,
                 videoWidth = videoWidth,
                 videoHeight = videoHeight,
+                prepared = prepared,
             )
             compositionBuilder.setVideoCompositorSettings(settings)
         }
@@ -297,7 +313,15 @@ class VideoExporter(private val context: Context) {
                 dir.deleteRecursively()
                 return null
             }
-            backdrops += PreparedBackdrop(file, segment.startMs, segment.endMs)
+            backdrops += PreparedBackdrop(
+                file = file,
+                startMs = segment.startMs,
+                endMs = segment.endMs,
+                kenBurns = background?.kenBurns ?: KenBurnsMode.NINGUNO,
+                kenBurnsStartMs = background?.startMs ?: 0L,
+                kenBurnsEndMs = background?.endMs ?: 0L,
+                kenBurnsIndex = KenBurnsMath.indexOf(project.backgrounds, background?.id),
+            )
         }
 
         return PreparedComposition(dir, backdrops)
@@ -307,11 +331,14 @@ class VideoExporter(private val context: Context) {
         project: Project,
         videoWidth: Int,
         videoHeight: Int,
+        prepared: PreparedComposition,
     ): VideoCompositorSettings =
         WindowCompositorSettings(
             outputWidth = videoWidth,
             outputHeight = videoHeight,
             window = project.videoWindow,
+            hasVideoClips = project.clips.isNotEmpty(),
+            backdrops = prepared.backdrops,
         )
 
     /**
@@ -326,13 +353,19 @@ class VideoExporter(private val context: Context) {
         private val outputWidth: Int,
         private val outputHeight: Int,
         private val window: VideoWindow,
+        /**
+         * `true` cuando la entrada 0 son los clips de vídeo. Sin clips, la
+         * entrada 0 es la secuencia de fondos y no hay ventana que mover.
+         */
+        private val hasVideoClips: Boolean,
+        private val backdrops: List<PreparedBackdrop>,
     ) : VideoCompositorSettings {
 
         override fun getOutputSize(inputSizes: List<Size>): Size =
             Size(outputWidth, outputHeight)
 
         override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings =
-            if (inputId == 0) {
+            if (hasVideoClips && inputId == 0) {
                 // Entrada primaria: la ventana de vídeo, encima del fondo.
                 OverlaySettings.Builder()
                     .setBackgroundFrameAnchor(
@@ -348,13 +381,36 @@ class VideoExporter(private val context: Context) {
                     .setRotationDegrees(-window.rotationDeg)
                     .build()
             } else {
-                // Fondos ya recortados al tamaño del fotograma: escala 1.
-                OverlaySettings.Builder()
-                    .setBackgroundFrameAnchor(0f, 0f)
-                    .setOverlayFrameAnchor(0f, 0f)
-                    .setScale(1f, 1f)
-                    .build()
+                // Fondos: ya están recortados al tamaño del fotograma, así que la
+                // única transformación es el Ken Burns evaluado en este instante.
+                backdropSettings(presentationTimeUs / 1000L)
             }
+
+        /**
+         * Ajustes del fondo activo en [timeMs]. El desplazamiento del Ken Burns
+         * está normalizado (1 = ancho del lienzo) y Media3 trabaja en NDC
+         * (-1..1 con el eje Y hacia arriba), por eso se duplica y el eje vertical
+         * se invierte. Sin efecto queda escala 1 y sin desplazamiento, que es el
+         * comportamiento anterior.
+         */
+        private fun backdropSettings(timeMs: Long): OverlaySettings {
+            val active = backdrops.firstOrNull { timeMs >= it.startMs && timeMs < it.endMs }
+                ?: backdrops.lastOrNull()
+            val kenBurns = active?.let {
+                KenBurnsMath.transformAt(
+                    mode = it.kenBurns,
+                    index = it.kenBurnsIndex,
+                    startMs = it.kenBurnsStartMs,
+                    endMs = it.kenBurnsEndMs,
+                    timeMs = timeMs,
+                )
+            } ?: KenBurnsMath.SIN_EFECTO
+            return OverlaySettings.Builder()
+                .setBackgroundFrameAnchor(kenBurns.offsetX * 2f, kenBurns.offsetY * -2f)
+                .setOverlayFrameAnchor(0f, 0f)
+                .setScale(kenBurns.scale, kenBurns.scale)
+                .build()
+        }
     }
 
     private fun buildSequences(

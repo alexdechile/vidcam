@@ -113,6 +113,8 @@ import com.vidcam.app.media.MediaProbe
 import com.vidcam.app.model.CLIP_SPEEDS
 import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.ColorFilterPreset
+import com.vidcam.app.model.KenBurnsMath
+import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
@@ -1215,6 +1217,9 @@ private fun TimelineSection(
                         onRemove = { viewModel.removeBackground(background.id) },
                         onMoveUp = { viewModel.moveBackgroundUp(background.id) },
                         onMoveDown = { viewModel.moveBackgroundDown(background.id) },
+                        onSelectKenBurns = {
+                            viewModel.setBackgroundKenBurns(background.id, it)
+                        },
                         canMoveUp = background.zIndex > 0,
                         canMoveDown = background.zIndex < sortedBackgrounds.maxByOrNull { it.zIndex }?.zIndex ?: 0,
                     )
@@ -1382,6 +1387,7 @@ private fun BackgroundRow(
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onSelectKenBurns: (KenBurnsMode) -> Unit,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
 ) {
@@ -1389,53 +1395,60 @@ private fun BackgroundRow(
     val bitmap = remember(background.uri) {
         LayerBitmaps.decodePng(context, background.uri)
     }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(32.dp)
-                    .padding(end = 8.dp),
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = background.label,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-            )
-            Text(
-                text = "${formatDuration(background.startMs)}–${formatDuration(background.endMs)}",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        // Botones de reordenamiento
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 8.dp)
         ) {
-            IconButton(
-                onClick = onMoveUp,
-                enabled = canMoveUp
-            ) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir fondo")
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .padding(end = 8.dp),
+                )
             }
-            IconButton(
-                onClick = onMoveDown,
-                enabled = canMoveDown
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = background.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "${formatDuration(background.startMs)}–${formatDuration(background.endMs)}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            // Botones de reordenamiento
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 8.dp)
             ) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar fondo")
+                IconButton(
+                    onClick = onMoveUp,
+                    enabled = canMoveUp
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir fondo")
+                }
+                IconButton(
+                    onClick = onMoveDown,
+                    enabled = canMoveDown
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar fondo")
+                }
+            }
+            TextButton(onClick = onEdit) { Text("Editar") }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Default.Delete, contentDescription = "Eliminar fondo")
             }
         }
-        TextButton(onClick = onEdit) { Text("Editar") }
-        IconButton(onClick = onRemove) {
-            Icon(Icons.Default.Delete, contentDescription = "Eliminar fondo")
-        }
+        KenBurnsChips(
+            selected = background.kenBurns,
+            onSelect = onSelectKenBurns,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+        )
     }
 }
 
@@ -1470,6 +1483,10 @@ private fun BackgroundSegmentDialog(
                 )
                 Text(
                     text = "El fondo cubre todo el lienzo y queda debajo del vídeo y de las capas.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Entra con Ken Burns automático; el zoom se ajusta en la fila del fondo.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -1617,6 +1634,77 @@ private fun SpeedChips(
             Spacer(Modifier.width(4.dp))
         }
     }
+}
+
+private fun KenBurnsMode.label(): String = when (this) {
+    KenBurnsMode.NINGUNO -> "Sin zoom"
+    KenBurnsMode.ACERCAR -> "Zoom in"
+    KenBurnsMode.ALEJAR -> "Zoom out"
+    KenBurnsMode.AUTOMATICO -> "Ken Burns auto"
+}
+
+@Composable
+private fun KenBurnsChips(
+    selected: KenBurnsMode,
+    onSelect: (KenBurnsMode) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Zoom", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(8.dp))
+        KenBurnsMode.entries.forEach { mode ->
+            FilterChip(
+                selected = mode == selected,
+                onClick = { onSelect(mode) },
+                enabled = enabled,
+                label = { Text(mode.label(), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+/**
+ * Dibuja una imagen de fondo con su efecto Ken Burns ya resuelto en [timeMs].
+ *
+ * La imagen se dibuja como hasta ahora (recorte *cover* para llenar el lienzo) y
+ * el zoom y el desplazamiento se aplican sobre esa capa. Como el desplazamiento
+ * se calcula con el margen que deja el propio zoom, la imagen siempre cubre el
+ * lienzo y se ve lo mismo que en el MP4 exportado.
+ */
+@Composable
+private fun KenBurnsBackground(
+    bitmap: Bitmap,
+    background: BackgroundLayer?,
+    backgrounds: List<BackgroundLayer>,
+    timeMs: Long,
+) {
+    val kenBurns = background?.let {
+        KenBurnsMath.transformAt(
+            mode = it.kenBurns,
+            index = KenBurnsMath.indexOf(backgrounds, it.id),
+            startMs = it.startMs,
+            endMs = it.endMs,
+            timeMs = timeMs,
+        )
+    } ?: KenBurnsMath.SIN_EFECTO
+    Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = "Fondo",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = kenBurns.scale
+                scaleY = kenBurns.scale
+                translationX = kenBurns.offsetX * size.width.toFloat()
+                translationY = kenBurns.offsetY * size.height.toFloat()
+            },
+    )
 }
 
 private fun ShakeIntensity.label(): String = when (this) {
@@ -2035,14 +2123,15 @@ private fun TimelinePreview(
                 .clipToBounds(),
         ) {
             // El fondo va debajo de todo y se recorta para llenar el lienzo,
-            // igual que el PNG pre-renderizado de la exportación.
+            // igual que el PNG pre-renderizado de la exportación. El Ken Burns se
+            // evalúa en el instante de reproducción, así que se ve igual que en el MP4.
             val currentBackground = backgroundBitmap
             if (currentBackground != null) {
-                Image(
-                    bitmap = currentBackground.asImageBitmap(),
-                    contentDescription = "Fondo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                KenBurnsBackground(
+                    bitmap = currentBackground,
+                    background = activeBackground,
+                    backgrounds = project.backgrounds,
+                    timeMs = positionMs,
                 )
             }
 
@@ -2936,7 +3025,15 @@ private fun ExportPreviewDialog(
         VideoWindowAspect.VERTICAL -> "9:16 Vertical"
     }
     val filterLabel = firstClip?.colorFilter?.label() ?: "Ninguno"
-    val bgLabel = if (project.backgrounds.isNotEmpty()) "PNG" else "Negro"
+    val kenBurnsLabel = activeBackground
+        ?.takeIf { KenBurnsMath.isActive(it.kenBurns) }
+        ?.kenBurns
+        ?.label()
+    val bgLabel = when {
+        project.backgrounds.isEmpty() -> "Negro"
+        kenBurnsLabel != null -> "PNG · $kenBurnsLabel"
+        else -> "PNG"
+    }
     val windowLabel = if (hasClips) aspectLabel else "Solo imágenes"
 
     AlertDialog(
@@ -2962,11 +3059,11 @@ private fun ExportPreviewDialog(
                 ) {
                     val bg = backgroundBitmap
                     if (bg != null) {
-                        Image(
-                            bitmap = bg.asImageBitmap(),
-                            contentDescription = "Fondo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
+                        KenBurnsBackground(
+                            bitmap = bg,
+                            background = activeBackground,
+                            backgrounds = project.backgrounds,
+                            timeMs = previewTimeMs,
                         )
                     }
 

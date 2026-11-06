@@ -27,6 +27,7 @@ import com.vidcam.app.model.CaptionStyle
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.BackgroundLayer
+import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.LayerTiming
@@ -1018,8 +1019,18 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * Agrega un PNG de fondo copiándolo al almacenamiento propio, igual que las
      * capas, para que el proyecto guardado siga funcionando después de que
      * caduque el permiso del selector.
+     *
+     * El fondo nuevo entra con el Ken Burns automático activado: el zoom se
+     * reparte sobre el tramo elegido, así que un vídeo más largo lo mueve más
+     * despacio. Se puede desactivar o cambiar de dirección desde la fila del
+     * fondo.
      */
-    fun addBackground(uri: Uri, startMs: Long, endMs: Long) {
+    fun addBackground(
+        uri: Uri,
+        startMs: Long,
+        endMs: Long,
+        kenBurns: KenBurnsMode = KenBurnsMode.AUTOMATICO,
+    ) {
         if (endMs <= startMs) {
             _message.value = "El tramo del fondo debe durar más de cero"
             return
@@ -1032,11 +1043,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 _message.value = "No se pudo agregar la imagen de fondo"
                 return@launch
             }
-            addBackgroundWithUri(Uri.fromFile(stored).toString(), startMs, endMs)
+            addBackgroundWithUri(Uri.fromFile(stored).toString(), startMs, endMs, kenBurns)
         }
     }
 
-    private fun addBackgroundWithUri(uri: String, startMs: Long, endMs: Long) {
+    private fun addBackgroundWithUri(
+        uri: String,
+        startMs: Long,
+        endMs: Long,
+        kenBurns: KenBurnsMode,
+    ) {
         val id = "bg-${System.currentTimeMillis()}"
         update("background-add:$id") { project ->
             val total = project.outputDurationMs
@@ -1047,6 +1063,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 startMs = startMs,
                 endMs = endMs,
                 zIndex = nextZ + 1,
+                kenBurns = kenBurns,
             )
             project.copy(
                 backgrounds = VideoWindowMath.trimOverlaps(
@@ -1079,6 +1096,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun removeBackground(id: String) =
         update("background-remove:$id") { project ->
             project.copy(backgrounds = project.backgrounds.filterNot { it.id == id })
+        }
+
+    /**
+     * Cambia el efecto Ken Burns de un fondo. El zoom se recalcula sobre el
+     * tramo del fondo, así que la velocidad depende de la duración del vídeo.
+     */
+    fun setBackgroundKenBurns(id: String, mode: KenBurnsMode) =
+        update("background-ken-burns:$id") { project ->
+            project.copy(
+                backgrounds = project.backgrounds.map {
+                    if (it.id == id) it.copy(kenBurns = mode) else it
+                },
+            )
         }
 
     /** Actualiza el transform global de la ventana dentro de los límites válidos. */

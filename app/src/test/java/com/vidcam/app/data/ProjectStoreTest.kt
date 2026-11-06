@@ -3,6 +3,7 @@ package com.vidcam.app.data
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.BackgroundLayer
+import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.MusicTrack
@@ -84,6 +85,7 @@ class ProjectStoreTest {
                 startMs = 0L,
                 endMs = 4_000L,
                 label = "Fondo uno",
+                kenBurns = KenBurnsMode.AUTOMATICO,
             ),
             BackgroundLayer(
                 id = "bg-2",
@@ -91,6 +93,7 @@ class ProjectStoreTest {
                 startMs = 4_000L,
                 endMs = 9_000L,
                 label = "Fondo dos",
+                kenBurns = KenBurnsMode.ALEJAR,
             ),
         ),
         videoWindow = VideoWindow(
@@ -193,5 +196,33 @@ class ProjectStoreTest {
         val project = store.load("viejo")?.project
         assertTrue(project?.backgrounds?.isEmpty() == true)
         assertTrue(project?.videoWindow?.isDefault == true)
+    }
+
+    @Test
+    fun `un fondo guardado antes del ken burns carga sin efecto`() {
+        // Antes del Ken Burns, BackgroundLayer no tenía el campo `kenBurns`.
+        val legacy = """
+            {
+              "id": "viejo",
+              "name": "Viejo",
+              "createdAtMs": 0,
+              "updatedAtMs": 0,
+              "project": {
+                "backgrounds": [
+                  {
+                    "id": "bg-legacy",
+                    "uri": "file:///data/media/fondo.png",
+                    "startMs": 0,
+                    "endMs": 5000
+                  }
+                ]
+              }
+            }
+        """.trimIndent()
+        temp.root.resolve("projects").mkdirs()
+        temp.root.resolve("projects").resolve("viejo.json").writeText(legacy)
+
+        val background = store.load("viejo")?.project?.backgrounds?.first()
+        assertEquals(KenBurnsMode.NINGUNO, background?.kenBurns)
     }
 }

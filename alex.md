@@ -2,6 +2,22 @@
 
 ## Último Realizado
 
+- **2026-11-06**: Efecto Ken Burns en imágenes fijas (change OpenSpec
+  `add-ken-burns-effect`):
+  1. Cada fondo PNG elige su zoom con chips **Sin zoom / Zoom in / Zoom out /
+     Ken Burns auto**; un fondo nuevo entra con el automático, que alterna
+     acercar y alejar entre imágenes consecutivas.
+  2. El cálculo vive en `model/KenBurnsMath.kt` (zoom del 14 % repartido sobre el
+     tramo con suavizado), así que el mismo efecto se ve más rápido en un fondo
+     de 4 s y más lento en uno de 20 s: la velocidad la fija la duración.
+  3. El desplazamiento se acota a `(escala - 1) / 2`, el margen que deja el
+     propio zoom, para que la imagen nunca deje ver los bordes.
+  4. La exportación no necesita efectos nuevos: el compositor de Media3 recibe
+     escala y ancla por fotograma en `getOverlaySettings`, y también se activa
+     cuando el proyecto no tiene clips (el fondo es la pista de vídeo).
+  5. Retrocompatible: `BackgroundLayer.kenBurns = NINGUNO` por defecto, con
+     tests JVM del cálculo y del JSON.
+
 - **2026-11-02**: Subtítulos con transcripción y mezcla con fundidos y ducking (v1.7.0):
   1. **Subtítulos quemados**: `Caption`/`CaptionStyle` con tiempos absolutos y
      estilo global (tamaño, altura, mayúsculas, fondo). Se dibujan con la misma
@@ -76,7 +92,9 @@
 - Importación de clips de vídeo y ajuste de velocidad por clip.
 - Biblioteca de música del dispositivo y efectos (p. ej. Shake/temblor).
 - Capas interactivas: PNG transparente y textos con Google Fonts, manipulables mediante gestos (arrastrar, escalar, rotar) y grabación de movimiento en el lienzo (animación de posición en tiempo real).
-- Fondos PNG a pantalla completa por tramos de tiempo.
+- Fondos PNG a pantalla completa por tramos de tiempo, con efecto Ken Burns de
+  zoom (zoom in / zoom out / automático alternado) cuya velocidad depende de la
+  duración del vídeo.
 - Ventana de vídeo configurable (aspecto 1:1 o 9:16), arrastrable, escalable y girable sobre el fondo.
 - Persistencia de proyectos en formato JSON y soporte para Deshacer/Rehacer (Undo/Redo).
 - Exportación acelerada a MP4 (H.264/AAC), guardado directo en galería y diálogo nativo para compartir.

@@ -46,6 +46,29 @@ enum class ShakeIntensity {
     FUERTE,
 }
 
+/**
+ * Efecto Ken Burns (zoom lento con un desplazamiento mínimo) aplicado a una
+ * imagen fija.
+ *
+ * La animación se reparte sobre el tramo visible de la imagen, así que la misma
+ * cantidad de zoom se ve más rápida en un tramo corto y más lenta en uno largo:
+ * la velocidad queda determinada por la duración del vídeo sin ajustes extra.
+ */
+@Serializable
+enum class KenBurnsMode {
+    /** Imagen quieta, como antes de esta función. */
+    NINGUNO,
+
+    /** Acercamiento: arranca en el encuadre completo y termina ampliado. */
+    ACERCAR,
+
+    /** Alejamiento: arranca ampliado y termina en el encuadre completo. */
+    ALEJAR,
+
+    /** Alterna [ACERCAR] y [ALEJAR] entre las imágenes, en orden de aparición. */
+    AUTOMATICO,
+}
+
 @Serializable
 data class VideoClip(
     val id: String,
@@ -174,6 +197,11 @@ data class BackgroundLayer(
      * Se usa para ordenar en vista previa y exportación.
      */
     val zIndex: Int = 0,
+    /**
+     * Efecto Ken Burns de la imagen. [KenBurnsMode.NINGUNO] = imagen quieta
+     * (retrocompatible con los proyectos guardados antes de esta función).
+     */
+    val kenBurns: KenBurnsMode = KenBurnsMode.NINGUNO,
 )
 
 @Serializable

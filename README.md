@@ -4,7 +4,7 @@ Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
 capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
 rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
-pantalla completa por tramos, ventana de vídeo móvil y girable con forma 1:1 o
+pantalla completa por tramos con efecto Ken Burns de zoom, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
 (H.264/AAC) con guardado en galería y hoja de compartir, recepción de vídeos,
 imágenes y música compartidos desde otras apps, capas GIF animadas, vídeos
@@ -20,8 +20,9 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 `openspec/changes/add-background-and-video-window/`,
 `openspec/changes/add-shared-file-intake/`,
 `openspec/changes/add-gif-and-still-videos/`,
-`openspec/changes/add-voiceover/` y
-`openspec/changes/add-captions-and-audio-mix/`.
+`openspec/changes/add-voiceover/`,
+`openspec/changes/add-captions-and-audio-mix/` y
+`openspec/changes/add-ken-burns-effect/`.
 
 ## Voz en off
 
@@ -78,6 +79,28 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 - La vista previa y el MP4 usan la misma geometría: la exportación compone el
   fondo y la ventana con el compositor de Media3 y mantiene el camino anterior
   cuando el proyecto no usa estas funciones.
+
+## Ken Burns en imágenes fijas
+
+- Cada fondo PNG puede llevar el efecto **Ken Burns**: un zoom lento con un
+  desplazamiento mínimo que recorre la imagen. Se elige con los chips
+  `Sin zoom / Zoom in / Zoom out / Ken Burns auto` en la fila del fondo, y un
+  fondo nuevo entra con `Ken Burns auto` activado.
+- **La velocidad la decide la duración**: el zoom total (14 % del encuadre) se
+  reparte sobre el tramo de la imagen, con suavizado de entrada y salida. Un
+  fondo de 4 s se mueve más rápido que uno de 20 s, así que un vídeo más largo
+  produce un movimiento más lento sin ajustes extra.
+- **Automático de verdad**: `Ken Burns auto` alterna acercar y alejar según el
+  orden de las imágenes, para que dos fondos consecutivos no repitan el mismo
+  movimiento.
+- El desplazamiento queda acotado al margen que deja el propio zoom
+  (`|desplazamiento| <= (escala - 1) / 2`), así que la imagen siempre cubre el
+  lienzo y nunca aparecen franjas negras.
+- `model/KenBurnsMath.kt` concentra el cálculo; la vista previa (Compose) y la
+  exportación (ajustes del compositor de Media3 por fotograma) lo usan con el
+  mismo resultado. Funciona igual en un proyecto con clips y en un vídeo hecho
+  solo con imágenes: en ese caso el propio fondo hace de pista de vídeo y el
+  zoom se aplica sobre él.
 
 ## Requisitos
 
