@@ -37,8 +37,9 @@
 
 ## 5. Verificación
 
-- [ ] 5.1 Compilar y correr los tests en GitHub Actions (`lint`, `test`, `assembleDebug`,
-      `assembleRelease`) y corregir lo que falle
+- [x] 5.1 Compilar y correr los tests en GitHub Actions (`lint`, `test`, `assembleDebug`,
+      `assembleRelease`): todo verde, con `KenBurnsMathTest` (10 tests) y `ProjectStoreTest` (8)
+      pasando
 - [ ] 5.2 Probar en dispositivo: fondo único con automático, dos fondos alternando, `Zoom in` y
       `Zoom out` forzados, `Sin zoom`, y comparar el MP4 con la vista previa
 - [ ] 5.3 Probar con tramos de distinta duración (4 s y 20 s) para confirmar que el movimiento es
