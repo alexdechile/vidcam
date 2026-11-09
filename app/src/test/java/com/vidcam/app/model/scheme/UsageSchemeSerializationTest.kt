@@ -77,10 +77,9 @@ class UsageSchemeSerializationTest {
                 duckingAmount = 0.6f,
             ),
             captionStyle = CaptionStyle(
-                fontSizeSp = 28f,
-                positionY = 0.85f,
-                allCaps = true,
-                hasBackground = true,
+                sizeFraction = 0.045f,
+                yFraction = 0.85f,
+                uppercase = true,
             ),
         )
 
