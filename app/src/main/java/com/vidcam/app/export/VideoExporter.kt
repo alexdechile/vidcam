@@ -32,6 +32,7 @@ import com.vidcam.app.audio.PcmAudio
 import com.vidcam.app.audio.WavFile
 import com.vidcam.app.effect.*
 import com.vidcam.app.media.MediaProbe
+import com.vidcam.app.model.AnimationSpeed
 import com.vidcam.app.model.KenBurnsMath
 import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.Project
@@ -59,6 +60,7 @@ private data class PreparedBackdrop(
     val startMs: Long,
     val endMs: Long,
     val kenBurns: KenBurnsMode = KenBurnsMode.NINGUNO,
+    val kenBurnsSpeed: AnimationSpeed = AnimationSpeed.RAPIDO,
     val kenBurnsStartMs: Long = 0L,
     val kenBurnsEndMs: Long = 0L,
     val kenBurnsIndex: Int = 0,
@@ -345,6 +347,7 @@ class VideoExporter(private val context: Context) {
                 startMs = segment.startMs,
                 endMs = segment.endMs,
                 kenBurns = background?.kenBurns ?: KenBurnsMode.NINGUNO,
+                kenBurnsSpeed = background?.kenBurnsSpeed ?: AnimationSpeed.RAPIDO,
                 kenBurnsStartMs = background?.startMs ?: 0L,
                 kenBurnsEndMs = background?.endMs ?: 0L,
                 kenBurnsIndex = KenBurnsMath.indexOf(project.backgrounds, background?.id),
@@ -524,6 +527,7 @@ class VideoExporter(private val context: Context) {
                             listOf(
                                 KenBurnsTransformation(
                                     mode = backdrop.kenBurns,
+                                    speed = backdrop.kenBurnsSpeed,
                                     index = backdrop.kenBurnsIndex,
                                     itemStartMs = backdrop.startMs,
                                     startMs = backdrop.kenBurnsStartMs,

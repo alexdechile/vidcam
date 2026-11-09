@@ -47,12 +47,7 @@ enum class ShakeIntensity {
 }
 
 /**
- * Efecto Ken Burns (zoom lento con un desplazamiento mínimo) aplicado a una
- * imagen fija.
- *
- * La animación se reparte sobre el tramo visible de la imagen, así que la misma
- * cantidad de zoom se ve más rápida en un tramo corto y más lenta en uno largo:
- * la velocidad queda determinada por la duración del vídeo sin ajustes extra.
+ * Efecto Ken Burns y animaciones procedimentales aplicadas a un fondo PNG.
  */
 @Serializable
 enum class KenBurnsMode {
@@ -67,6 +62,61 @@ enum class KenBurnsMode {
 
     /** Alterna [ACERCAR] y [ALEJAR] entre las imágenes, en orden de aparición. */
     AUTOMATICO,
+
+    /** Paneo lateral continuo con encuadre ampliado. */
+    PANEO,
+
+    /** Recorrido diagonal con zoom progresivo. */
+    DIAGONAL,
+
+    /** Latido rítmico continuo de escala. */
+    PULSO,
+
+    /** Levitación suave vertical con ligera inclinación. */
+    FLOTAR,
+
+    /** Balanceo rotacional tipo péndulo. */
+    VAIVEN,
+
+    /** Vibración rápida y enérgica de posición y ángulo. */
+    TEMBLOR,
+}
+
+/**
+ * Presets de animación procedimental aplicables a capas PNG/texto.
+ */
+@Serializable
+enum class PngAnimationPreset {
+    NINGUNO,
+    KEN_BURNS_ACERCAR,
+    KEN_BURNS_ALEJAR,
+    KEN_BURNS_PANEO,
+    KEN_BURNS_DIAGONAL,
+    PULSO,
+    FLOTAR,
+    VAIVEN,
+    TEMBLOR,
+}
+
+/**
+ * Velocidad de ejecución de la animación procedimental o Ken Burns.
+ */
+@Serializable
+enum class AnimationSpeed(val multiplier: Float) {
+    NORMAL(1f),
+    RAPIDO(1.6f),
+    TURBO(2.4f),
+}
+
+/**
+ * Transición de entrada y salida para capas superpuestas (PNG/texto/GIF).
+ */
+@Serializable
+enum class LayerTransitionPreset {
+    NINGUNA,
+    POP,
+    DESLIZAR,
+    FUNDIDO,
 }
 
 @Serializable
@@ -145,6 +195,12 @@ data class OverlayLayer(
      * existiera la grabación de movimiento.
      */
     val keyframes: List<LayerKeyframe> = emptyList(),
+    /** Preset de animación procedimental continua o Ken Burns. */
+    val animation: PngAnimationPreset = PngAnimationPreset.NINGUNO,
+    /** Velocidad de la animación procedimental (por defecto RAPIDO). */
+    val animationSpeed: AnimationSpeed = AnimationSpeed.RAPIDO,
+    /** Transición de entrada y salida de la capa. */
+    val transition: LayerTransitionPreset = LayerTransitionPreset.NINGUNA,
 )
 
 /** Forma de la ventana donde se dibuja el vídeo sobre el fondo. */
@@ -198,10 +254,12 @@ data class BackgroundLayer(
      */
     val zIndex: Int = 0,
     /**
-     * Efecto Ken Burns de la imagen. [KenBurnsMode.NINGUNO] = imagen quieta
+     * Efecto Ken Burns o animación de la imagen. [KenBurnsMode.NINGUNO] = imagen quieta
      * (retrocompatible con los proyectos guardados antes de esta función).
      */
     val kenBurns: KenBurnsMode = KenBurnsMode.NINGUNO,
+    /** Velocidad del efecto Ken Burns o animación del fondo (por defecto RAPIDO). */
+    val kenBurnsSpeed: AnimationSpeed = AnimationSpeed.RAPIDO,
 )
 
 @Serializable

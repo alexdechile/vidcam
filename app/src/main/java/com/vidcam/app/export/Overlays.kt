@@ -14,6 +14,7 @@ import androidx.media3.effect.OverlaySettings
 import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.OverlayLayer
+import com.vidcam.app.model.resolvedAlphaAt
 import com.vidcam.app.model.resolvedAt
 
 /**
@@ -48,10 +49,12 @@ class LayerBitmapOverlay(
         val startUs = layer.startMs * 1000L
         val endUs = layer.endMs * 1000L
         val visible = presentationTimeUs in startUs..endUs
-        val animated = layer.resolvedAt(presentationTimeUs / 1000L)
+        val timeMs = presentationTimeUs / 1000L
+        val animated = layer.resolvedAt(timeMs)
+        val alpha = if (visible) layer.resolvedAlphaAt(timeMs) else 0f
         val scale = baseScale * animated.scale
         return OverlaySettings.Builder()
-            .setAlphaScale(if (visible) 1f else 0f)
+            .setAlphaScale(alpha)
             .setScale(scale, scale)
             // Compose rota en sentido horario; Media3 recibe grados antihorarios.
             .setRotationDegrees(-animated.rotationDeg)

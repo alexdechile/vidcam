@@ -29,8 +29,8 @@ android {
         applicationId = "com.vidcam.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.8.1"
+        versionCode = 18
+        versionName = "1.9.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

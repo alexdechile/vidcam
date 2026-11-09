@@ -181,4 +181,90 @@ class LayerAnimationTest {
         )
         assertNull(hitTestLayers(listOf(rotated), 58f, 50f, 100f, 100f))
     }
+
+    @Test
+    fun kenBurnsZoomInProgressesFasterWithHigherSpeed() {
+        val normal = layer(endMs = 10_000L).copy(
+            animation = PngAnimationPreset.KEN_BURNS_ACERCAR,
+            animationSpeed = AnimationSpeed.NORMAL,
+        )
+        val rapido = normal.copy(animationSpeed = AnimationSpeed.RAPIDO)
+        val turbo = normal.copy(animationSpeed = AnimationSpeed.TURBO)
+
+        val t = 400L
+        val scaleNormal = normal.resolvedAt(t).scale
+        val scaleRapido = rapido.resolvedAt(t).scale
+        val scaleTurbo = turbo.resolvedAt(t).scale
+
+        assertTrue(scaleNormal > 1.0f)
+        assertTrue(scaleRapido > scaleNormal)
+        assertTrue(scaleTurbo > scaleRapido)
+    }
+
+    @Test
+    fun kenBurnsZoomOutStartsZoomedInAndShrinks() {
+        val zoomOut = layer(endMs = 3_000L).copy(
+            animation = PngAnimationPreset.KEN_BURNS_ALEJAR,
+            animationSpeed = AnimationSpeed.RAPIDO,
+        )
+        val atStart = zoomOut.resolvedAt(0L)
+        val atPeak = zoomOut.resolvedAt(1_500L)
+        assertTrue(atStart.scale > 1.4f)
+        assertEquals(1.0f, atPeak.scale, 0.01f)
+    }
+
+    @Test
+    fun loopPresetsProduceDynamicTransformations() {
+        val pulso = layer().copy(animation = PngAnimationPreset.PULSO)
+        val flotar = layer().copy(animation = PngAnimationPreset.FLOTAR)
+        val vaiven = layer().copy(animation = PngAnimationPreset.VAIVEN)
+        val temblor = layer().copy(animation = PngAnimationPreset.TEMBLOR)
+
+        assertTrue(pulso.resolvedAt(200L).scale > 1.0f)
+        assertTrue(kotlin.math.abs(flotar.resolvedAt(150L).y - 0.5f) > 0.001f)
+        assertTrue(kotlin.math.abs(vaiven.resolvedAt(70L).rotationDeg) > 0.5f)
+        assertTrue(temblor.resolvedAt(250L).scale >= 1.04f)
+    }
+
+    @Test
+    fun transitionsAffectEntranceMiddleAndExit() {
+        val popLayer = layer(endMs = 2_000L).copy(transition = LayerTransitionPreset.POP)
+        assertTrue(popLayer.resolvedAt(0L).scale < 0.25f)
+        assertEquals(1.0f, popLayer.resolvedAt(1_000L).scale, 0.001f)
+        assertTrue(popLayer.resolvedAt(2_000L).scale < 0.25f)
+
+        val slideLayer = layer(endMs = 2_000L).copy(transition = LayerTransitionPreset.DESLIZAR)
+        assertTrue(slideLayer.resolvedAt(0L).y > 0.65f)
+        assertEquals(0.5f, slideLayer.resolvedAt(1_000L).y, 0.001f)
+
+        val fadeLayer = layer(endMs = 2_000L).copy(transition = LayerTransitionPreset.FUNDIDO)
+        assertEquals(0f, fadeLayer.resolvedAlphaAt(0L), 0.001f)
+        assertEquals(1f, fadeLayer.resolvedAlphaAt(1_000L), 0.001f)
+        assertEquals(0f, fadeLayer.resolvedAlphaAt(2_000L), 0.001f)
+    }
+
+    @Test
+    fun backgroundPresetsAlwaysMaintainCoverScaleMargin() {
+        val sampleTimes = listOf(0L, 120L, 450L, 900L, 1_500L, 2_800L)
+        for (mode in KenBurnsMode.entries) {
+            for (speed in AnimationSpeed.entries) {
+                val bg = BackgroundLayer(
+                    id = "bg-test",
+                    uri = "file:///bg.png",
+                    startMs = 0L,
+                    endMs = 5_000L,
+                    kenBurns = mode,
+                    kenBurnsSpeed = speed,
+                )
+                for (t in sampleTimes) {
+                    val tr = bg.resolvedTransformAt(t)
+                    val maxShift = maxOf(kotlin.math.abs(tr.dx), kotlin.math.abs(tr.dy))
+                    assertTrue(
+                        "Fondo con $mode ($speed) en t=$t debe cubrir desplazamiento",
+                        tr.scale - 1f >= maxShift * 1.99f,
+                    )
+                }
+            }
+        }
+    }
 }

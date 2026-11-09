@@ -961,6 +961,33 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun removeLayer(id: String) =
         update { project -> project.copy(layers = project.layers.filterNot { it.id == id }) }
 
+    fun setLayerAnimation(id: String, preset: PngAnimationPreset) =
+        update("layer-anim:$id") { project ->
+            project.copy(
+                layers = project.layers.map {
+                    if (it.id == id) it.copy(animation = preset) else it
+                },
+            )
+        }
+
+    fun setLayerAnimationSpeed(id: String, speed: AnimationSpeed) =
+        update("layer-anim-speed:$id") { project ->
+            project.copy(
+                layers = project.layers.map {
+                    if (it.id == id) it.copy(animationSpeed = speed) else it
+                },
+            )
+        }
+
+    fun setLayerTransition(id: String, transition: LayerTransitionPreset) =
+        update("layer-transition:$id") { project ->
+            project.copy(
+                layers = project.layers.map {
+                    if (it.id == id) it.copy(transition = transition) else it
+                },
+            )
+        }
+
     /**
      * Mueve una capa una posición hacia arriba (incrementa zIndex).
      * Reordena todas las capas para mantener zIndex contiguos.
@@ -1099,14 +1126,25 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
 
     /**
-     * Cambia el efecto Ken Burns de un fondo. El zoom se recalcula sobre el
-     * tramo del fondo, así que la velocidad depende de la duración del vídeo.
+     * Cambia el efecto Ken Burns o animación de un fondo.
      */
     fun setBackgroundKenBurns(id: String, mode: KenBurnsMode) =
         update("background-ken-burns:$id") { project ->
             project.copy(
                 backgrounds = project.backgrounds.map {
                     if (it.id == id) it.copy(kenBurns = mode) else it
+                },
+            )
+        }
+
+    /**
+     * Cambia la velocidad del efecto Ken Burns o animación de un fondo.
+     */
+    fun setBackgroundKenBurnsSpeed(id: String, speed: AnimationSpeed) =
+        update("background-ken-burns-speed:$id") { project ->
+            project.copy(
+                backgrounds = project.backgrounds.map {
+                    if (it.id == id) it.copy(kenBurnsSpeed = speed) else it
                 },
             )
         }

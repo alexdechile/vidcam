@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-11-08**: Ken Burns acelerado, selector de velocidad y nuevas animaciones PNG en fondos y capas (v1.9.0, change OpenSpec `add-png-animations-and-fast-ken-burns`):
+  1. **Ken Burns acelerado + selector de velocidad (`Normal`, `Rápido`, `Turbo`)**: se aumentó la amplitud de zoom (`36 %` en `Normal`, `50 %` en `Rápido`, `68 %` en `Turbo`) y en velocidades `Rápido`/`Turbo` los tramos largos hacen vaivén continuo ágil para que el movimiento sea dinámico desde el primer segundo.
+  2. **Nuevos modos en fondos y capas PNG (`KenBurnsMode` y `PngAnimationPreset`)**: además de `Acercar`, `Alejar` y `Automático`, se sumaron `Paneo`, `Diagonal`, `Pulso` (latido rítmico), `Flotar` (levitación suave), `Vaivén` (péndulo rotacional) y `Temblor` (vibración enérgica), manteniendo en `KenBurnsTransformation` el cálculo de cobertura para que nunca asomen bordes negros.
+  3. **Transiciones de entrada y salida en capas (`LayerTransitionPreset`)**: `Pop elástico`, `Deslizar` y `Fundido` (aplicados tanto en la vista previa con `graphicsLayer.alpha` como en la exportación MP4 con `OverlaySettings.setAlphaScale`).
+  4. **Grabación de movimiento con el dedo en proyectos solo de PNG**: se habilitó el botón *"Grabar movimiento"* aunque no haya clips de vídeo, sincronizado con el reloj de imágenes fijas (`stillPositionMs`).
+
 - **2026-11-06**: Efecto Ken Burns en imágenes fijas (v1.8.0, change OpenSpec
   `add-ken-burns-effect`):
   1. Cada fondo PNG elige su zoom con chips **Sin zoom / Zoom in / Zoom out /

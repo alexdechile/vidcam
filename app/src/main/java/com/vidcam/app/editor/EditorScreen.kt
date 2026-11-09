@@ -110,6 +110,7 @@ import com.vidcam.app.export.FrameGeometry
 import com.vidcam.app.export.LayerBitmaps
 import com.vidcam.app.media.GifAnimation
 import com.vidcam.app.media.MediaProbe
+import com.vidcam.app.model.AnimationSpeed
 import com.vidcam.app.model.CLIP_SPEEDS
 import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.ColorFilterPreset
@@ -119,6 +120,8 @@ import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.LayerHitTarget
 import com.vidcam.app.model.LayerKind
 import com.vidcam.app.model.LayerTiming
+import com.vidcam.app.model.LayerTransitionPreset
+import com.vidcam.app.model.PngAnimationPreset
 import com.vidcam.app.model.TARGET_DURATIONS_MS
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
@@ -135,7 +138,9 @@ import com.vidcam.app.model.VoiceoverMath
 import com.vidcam.app.model.VoiceoverTrack
 import com.vidcam.app.model.WideLensMode
 import com.vidcam.app.model.hitTestLayers
+import com.vidcam.app.model.resolvedAlphaAt
 import com.vidcam.app.model.resolvedAt
+import com.vidcam.app.model.resolvedKeyframesAt
 import com.vidcam.app.ui.BUILT_IN_STICKERS
 import com.vidcam.app.ui.CameraPreview
 import com.vidcam.app.ui.GOOGLE_FONT_NAMES
@@ -1026,7 +1031,7 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onToggleMotion,
-                enabled = project.layers.isNotEmpty() && project.clips.isNotEmpty(),
+                enabled = project.layers.isNotEmpty(),
             ) {
                 Text(if (motionRecording) "Detener grabación" else "Grabar movimiento")
             }
@@ -1220,6 +1225,9 @@ private fun TimelineSection(
                         onSelectKenBurns = {
                             viewModel.setBackgroundKenBurns(background.id, it)
                         },
+                        onSelectSpeed = {
+                            viewModel.setBackgroundKenBurnsSpeed(background.id, it)
+                        },
                         canMoveUp = background.zIndex > 0,
                         canMoveDown = background.zIndex < sortedBackgrounds.maxByOrNull { it.zIndex }?.zIndex ?: 0,
                     )
@@ -1315,6 +1323,26 @@ private fun LayerRow(
             onChange = { viewModel.setLayerStart(layer.id, it) },
         )
 
+        PngAnimationChips(
+            selected = layer.animation,
+            onSelect = { viewModel.setLayerAnimation(layer.id, it) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        if (layer.animation != PngAnimationPreset.NINGUNO ||
+            layer.transition != LayerTransitionPreset.NINGUNA
+        ) {
+            AnimationSpeedChips(
+                selected = layer.animationSpeed,
+                onSelect = { viewModel.setLayerAnimationSpeed(layer.id, it) },
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        LayerTransitionChips(
+            selected = layer.transition,
+            onSelect = { viewModel.setLayerTransition(layer.id, it) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
+
         if (layer.keyframes.isNotEmpty()) {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1388,6 +1416,7 @@ private fun BackgroundRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onSelectKenBurns: (KenBurnsMode) -> Unit,
+    onSelectSpeed: (AnimationSpeed) -> Unit,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
 ) {
@@ -1447,8 +1476,15 @@ private fun BackgroundRow(
         KenBurnsChips(
             selected = background.kenBurns,
             onSelect = onSelectKenBurns,
-            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
         )
+        if (background.kenBurns != KenBurnsMode.NINGUNO) {
+            AnimationSpeedChips(
+                selected = background.kenBurnsSpeed,
+                onSelect = onSelectSpeed,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+        }
     }
 }
 
@@ -1641,6 +1677,12 @@ private fun KenBurnsMode.label(): String = when (this) {
     KenBurnsMode.ACERCAR -> "Zoom in"
     KenBurnsMode.ALEJAR -> "Zoom out"
     KenBurnsMode.AUTOMATICO -> "Ken Burns auto"
+    KenBurnsMode.PANEO -> "KB Paneo"
+    KenBurnsMode.DIAGONAL -> "KB Diagonal"
+    KenBurnsMode.PULSO -> "Pulso"
+    KenBurnsMode.FLOTAR -> "Flotar"
+    KenBurnsMode.VAIVEN -> "Vaivén"
+    KenBurnsMode.TEMBLOR -> "Temblor"
 }
 
 @Composable
@@ -1654,7 +1696,7 @@ private fun KenBurnsChips(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Zoom", style = MaterialTheme.typography.labelMedium)
+        Text("Animar", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.width(8.dp))
         KenBurnsMode.entries.forEach { mode ->
             FilterChip(
@@ -1669,12 +1711,12 @@ private fun KenBurnsChips(
 }
 
 /**
- * Dibuja una imagen de fondo con su efecto Ken Burns ya resuelto en [timeMs].
+ * Dibuja una imagen de fondo con su efecto Ken Burns o animación ya resuelto en [timeMs].
  *
  * La imagen se dibuja como hasta ahora (recorte *cover* para llenar el lienzo) y
- * el zoom y el desplazamiento se aplican sobre esa capa. Como el desplazamiento
- * se calcula con el margen que deja el propio zoom, la imagen siempre cubre el
- * lienzo y se ve lo mismo que en el MP4 exportado.
+ * el zoom, rotación y desplazamiento se aplican sobre esa capa. Como el
+ * desplazamiento se calcula con el margen que deja el propio zoom, la imagen
+ * siempre cubre el lienzo y se ve lo mismo que en el MP4 exportado.
  */
 @Composable
 private fun KenBurnsBackground(
@@ -1690,6 +1732,7 @@ private fun KenBurnsBackground(
             startMs = it.startMs,
             endMs = it.endMs,
             timeMs = timeMs,
+            speed = it.kenBurnsSpeed,
         )
     } ?: KenBurnsMath.SIN_EFECTO
     Image(
@@ -1701,10 +1744,120 @@ private fun KenBurnsBackground(
             .graphicsLayer {
                 scaleX = kenBurns.scale
                 scaleY = kenBurns.scale
+                rotationZ = kenBurns.rotationDeg
                 translationX = kenBurns.offsetX * size.width.toFloat()
                 translationY = kenBurns.offsetY * size.height.toFloat()
             },
     )
+}
+
+private fun PngAnimationPreset.label(): String = when (this) {
+    PngAnimationPreset.NINGUNO -> "Sin animación"
+    PngAnimationPreset.KEN_BURNS_ACERCAR -> "KB Acercar"
+    PngAnimationPreset.KEN_BURNS_ALEJAR -> "KB Alejar"
+    PngAnimationPreset.KEN_BURNS_PANEO -> "KB Paneo"
+    PngAnimationPreset.KEN_BURNS_DIAGONAL -> "KB Diagonal"
+    PngAnimationPreset.PULSO -> "Pulso"
+    PngAnimationPreset.FLOTAR -> "Flotar"
+    PngAnimationPreset.VAIVEN -> "Vaivén"
+    PngAnimationPreset.TEMBLOR -> "Temblor"
+}
+
+@Composable
+private fun PngAnimationChips(
+    selected: PngAnimationPreset,
+    onSelect: (PngAnimationPreset) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Animar",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        PngAnimationPreset.entries.forEach { preset ->
+            FilterChip(
+                selected = preset == selected,
+                onClick = { onSelect(preset) },
+                enabled = enabled,
+                label = { Text(preset.label(), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+private fun AnimationSpeed.label(): String = when (this) {
+    AnimationSpeed.NORMAL -> "Normal"
+    AnimationSpeed.RAPIDO -> "Rápido"
+    AnimationSpeed.TURBO -> "Turbo"
+}
+
+@Composable
+private fun AnimationSpeedChips(
+    selected: AnimationSpeed,
+    onSelect: (AnimationSpeed) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Velocidad",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        AnimationSpeed.entries.forEach { speed ->
+            FilterChip(
+                selected = speed == selected,
+                onClick = { onSelect(speed) },
+                enabled = enabled,
+                label = { Text(speed.label(), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+private fun LayerTransitionPreset.label(): String = when (this) {
+    LayerTransitionPreset.NINGUNA -> "Sin transición"
+    LayerTransitionPreset.POP -> "Pop elástico"
+    LayerTransitionPreset.DESLIZAR -> "Deslizar"
+    LayerTransitionPreset.FUNDIDO -> "Fundido"
+}
+
+@Composable
+private fun LayerTransitionChips(
+    selected: LayerTransitionPreset,
+    onSelect: (LayerTransitionPreset) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Entrada/Salida",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        LayerTransitionPreset.entries.forEach { preset ->
+            FilterChip(
+                selected = preset == selected,
+                onClick = { onSelect(preset) },
+                enabled = enabled,
+                label = { Text(preset.label(), style = MaterialTheme.typography.labelMedium) },
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+    }
 }
 
 private fun ShakeIntensity.label(): String = when (this) {
@@ -1974,18 +2127,36 @@ private fun TimelinePreview(
         // PNG se reproduce igual, en bucle, sobre la duración fijada.
         var stillPositionMs = 0L
         var lastFrameNanos = 0L
+        var wasRecording = false
         while (true) {
             if (clipsState.value.isEmpty()) {
                 val nanos = withFrameNanos { it }
                 val total = outputDurationState.value
+                if (recordingNow && !wasRecording) {
+                    stillPositionMs = 0L
+                    previousPositionMs = 0L
+                    reachedEnd = false
+                }
+                wasRecording = recordingNow
                 if (lastFrameNanos != 0L && total > 0L) {
-                    stillPositionMs = (stillPositionMs + (nanos - lastFrameNanos) / 1_000_000L) % total
+                    val next = (stillPositionMs + (nanos - lastFrameNanos) / 1_000_000L) % total
+                    if (recordingNow) {
+                        if (next >= total - 100L) reachedEnd = true
+                        if (reachedEnd && next < previousPositionMs) {
+                            reachedEnd = false
+                            onMotionAutoStopNow()
+                        }
+                    } else {
+                        reachedEnd = false
+                    }
+                    stillPositionMs = next
                 }
                 lastFrameNanos = nanos
                 previousPositionMs = stillPositionMs
                 positionMs = stillPositionMs
                 continue
             }
+            wasRecording = recordingNow
             lastFrameNanos = 0L
             stillPositionMs = 0L
             // Sincronizado con el fotograma mientras hay reproducción; en pausa
@@ -2077,11 +2248,13 @@ private fun TimelinePreview(
             )
         } ?: (availableWidth to availableHeight)
 
-        val resolvedLayers = project.layers
+        val visibleRawLayers = project.layers
             .filter { LayerTiming.isVisibleAt(it, positionMs) }
-            .map { it.resolvedAt(positionMs) }
-            // Ordenar por zIndex para que coincida con exportación
             .sortedBy { it.zIndex }
+        val resolvedLayers = visibleRawLayers
+            .map { it.resolvedAt(positionMs) }
+        val keyframeResolvedLayers = visibleRawLayers
+            .map { it.resolvedKeyframesAt(positionMs) }
         val videoWindow = project.videoWindow
         val originalAspect = frameSize?.let {
             it.first.toFloat() / it.second.toFloat().coerceAtLeast(1f)
@@ -2100,6 +2273,7 @@ private fun TimelinePreview(
             }
         }
         val currentLayers by rememberUpdatedState(resolvedLayers)
+        val currentRawLayers by rememberUpdatedState(keyframeResolvedLayers)
         val currentWindow by rememberUpdatedState(videoWindow)
         val currentPositionMs by rememberUpdatedState(positionMs)
         val currentContainerWidth by rememberUpdatedState(containerWidth)
@@ -2346,7 +2520,7 @@ private fun TimelinePreview(
                                             val angle = atan2(p2.y - p1.y, p2.x - p1.x)
                                             if (lastDistance > 0f) {
                                                 val base = working
-                                                    ?: currentLayers.firstOrNull {
+                                                    ?: currentRawLayers.firstOrNull {
                                                         it.id == targetLayer.id
                                                     }
                                                     ?: targetLayer
@@ -2379,7 +2553,7 @@ private fun TimelinePreview(
                                                 val delta = change.position - lastPosition
                                                 lastPosition = change.position
                                                 val base = working
-                                                    ?: currentLayers.firstOrNull {
+                                                    ?: currentRawLayers.firstOrNull {
                                                         it.id == targetLayer.id
                                                     }
                                                     ?: targetLayer
@@ -2413,6 +2587,7 @@ private fun TimelinePreview(
                         containerHeight = containerHeight,
                         isSelected = layer.id == selectedLayerId,
                         timeMs = positionMs,
+                        layerAlpha = layer.resolvedAlphaAt(positionMs),
                         onMeasured = { measuredSizes[layer.id] = it },
                     )
                 }
@@ -2469,6 +2644,7 @@ private fun LayerBox(
     containerHeight: Float,
     isSelected: Boolean,
     timeMs: Long,
+    layerAlpha: Float = 1f,
     onMeasured: (IntSize) -> Unit,
 ) {
     val context = LocalContext.current
@@ -2512,6 +2688,7 @@ private fun LayerBox(
                 scaleX = layer.scale
                 scaleY = layer.scale
                 rotationZ = layer.rotationDeg
+                alpha = layerAlpha
             }
             .then(
                 if (isSelected) Modifier.border(2.dp, Color.Cyan, RoundedCornerShape(4.dp))
@@ -3117,6 +3294,7 @@ private fun ExportPreviewDialog(
                                 containerHeight = canvasHeightPx,
                                 isSelected = false,
                                 timeMs = previewTimeMs,
+                                layerAlpha = layer.resolvedAlphaAt(previewTimeMs),
                                 onMeasured = {},
                             )
                         }

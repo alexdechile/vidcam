@@ -4,11 +4,13 @@ import android.graphics.Matrix
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.MatrixTransformation
+import com.vidcam.app.model.AnimationSpeed
 import com.vidcam.app.model.KenBurnsMath
 import com.vidcam.app.model.KenBurnsMode
 
 /**
- * Ken Burns de una imagen de fondo como transformación del propio elemento.
+ * Ken Burns y animaciones procedimentales de una imagen de fondo como
+ * transformación del propio elemento.
  *
  * Se aplica a cada PNG de fondo preparado, antes de la composición, en lugar de
  * mover la textura desde [androidx.media3.effect.VideoCompositorSettings]: así
@@ -21,12 +23,14 @@ import com.vidcam.app.model.KenBurnsMode
  * elemento lleva su **propia** instancia, porque guarda ese origen.
  *
  * El resultado es la misma matriz que la vista previa aplica con
- * `graphicsLayer`: escala alrededor del centro del fotograma y desplazamiento en
- * coordenadas NDC (-1..1, eje Y hacia arriba), donde el centro es el origen.
+ * `graphicsLayer`: escala alrededor del centro del fotograma, rotación y
+ * desplazamiento en coordenadas NDC (-1..1, eje Y hacia arriba), donde el
+ * centro es el origen.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class KenBurnsTransformation(
     private val mode: KenBurnsMode,
+    private val speed: AnimationSpeed = AnimationSpeed.RAPIDO,
     private val index: Int,
     /** Instante del proyecto en el que empieza este elemento. */
     private val itemStartMs: Long,
@@ -49,9 +53,14 @@ class KenBurnsTransformation(
             startMs = startMs,
             endMs = endMs,
             timeMs = itemStartMs + elapsedMs,
+            speed = speed,
         )
         return Matrix().apply {
             setScale(kenBurns.scale, kenBurns.scale)
+            if (kenBurns.rotationDeg != 0f) {
+                // Compose gira en sentido horario; Media3 en sentido antihorario.
+                postRotate(-kenBurns.rotationDeg)
+            }
             postTranslate(
                 KenBurnsMath.ndcOffsetX(kenBurns),
                 KenBurnsMath.ndcOffsetY(kenBurns),

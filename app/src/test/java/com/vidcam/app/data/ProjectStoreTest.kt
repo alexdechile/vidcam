@@ -1,13 +1,16 @@
 package com.vidcam.app.data
 
+import com.vidcam.app.model.AnimationSpeed
 import com.vidcam.app.model.ColorFilterPreset
 import com.vidcam.app.model.ShakeIntensity
 import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.KenBurnsMode
 import com.vidcam.app.model.LayerKeyframe
 import com.vidcam.app.model.LayerKind
+import com.vidcam.app.model.LayerTransitionPreset
 import com.vidcam.app.model.MusicTrack
 import com.vidcam.app.model.OverlayLayer
+import com.vidcam.app.model.PngAnimationPreset
 import com.vidcam.app.model.Project
 import com.vidcam.app.model.VideoClip
 import com.vidcam.app.model.VideoWindow
@@ -68,6 +71,9 @@ class ProjectStoreTest {
                     LayerKeyframe(timeMs = 0L, x = 0.25f, y = 0.75f, scale = 1f, rotationDeg = 0f),
                     LayerKeyframe(timeMs = 2_000L, x = 0.5f, y = 0.5f, scale = 2f, rotationDeg = 45f),
                 ),
+                animation = PngAnimationPreset.KEN_BURNS_ACERCAR,
+                animationSpeed = AnimationSpeed.TURBO,
+                transition = LayerTransitionPreset.POP,
             ),
             OverlayLayer(
                 id = "layer-text",
@@ -76,6 +82,9 @@ class ProjectStoreTest {
                 fontName = "Roboto",
                 colorArgb = 0xFF00FF00.toInt(),
                 fontSizeSp = 56f,
+                animation = PngAnimationPreset.FLOTAR,
+                animationSpeed = AnimationSpeed.RAPIDO,
+                transition = LayerTransitionPreset.DESLIZAR,
             ),
         ),
         backgrounds = listOf(
@@ -86,6 +95,7 @@ class ProjectStoreTest {
                 endMs = 4_000L,
                 label = "Fondo uno",
                 kenBurns = KenBurnsMode.AUTOMATICO,
+                kenBurnsSpeed = AnimationSpeed.TURBO,
             ),
             BackgroundLayer(
                 id = "bg-2",
@@ -94,6 +104,7 @@ class ProjectStoreTest {
                 endMs = 9_000L,
                 label = "Fondo dos",
                 kenBurns = KenBurnsMode.ALEJAR,
+                kenBurnsSpeed = AnimationSpeed.NORMAL,
             ),
         ),
         videoWindow = VideoWindow(
