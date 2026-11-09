@@ -212,6 +212,7 @@ fun EditorScreen(
     var showVoiceSheet by remember { mutableStateOf(false) }
     var showCaptionsSheet by remember { mutableStateOf(false) }
     var showSchemesSheet by remember { mutableStateOf(false) }
+    var pendingSchemeBinding by remember { mutableStateOf<com.vidcam.app.model.scheme.SchemeBinding?>(null) }
     var voiceRestartSignal by remember { mutableStateOf(0) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
@@ -541,7 +542,8 @@ fun EditorScreen(
             schemes = savedSchemes,
             onDismiss = { showSchemesSheet = false },
             onApply = { scheme ->
-                viewModel.applyScheme(scheme)
+                showSchemesSheet = false
+                pendingSchemeBinding = viewModel.prepareSchemeBinding(scheme)
             },
             onSaveCurrent = { name, stages ->
                 viewModel.saveCurrentAsScheme(name, stages)
@@ -549,6 +551,20 @@ fun EditorScreen(
             onDelete = viewModel::deleteScheme,
             onExportJson = viewModel::exportSchemeJson,
             onImportJson = viewModel::importScheme,
+        )
+    }
+
+    pendingSchemeBinding?.let { binding ->
+        SchemeBindingSheet(
+            initialBinding = binding,
+            onDismiss = { pendingSchemeBinding = null },
+            onApplyBinding = { resolvedBinding ->
+                pendingSchemeBinding = null
+                viewModel.applySchemeWithBinding(resolvedBinding)
+                if (resolvedBinding.openVoiceoverOnApply) {
+                    showVoiceSheet = true
+                }
+            },
         )
     }
 

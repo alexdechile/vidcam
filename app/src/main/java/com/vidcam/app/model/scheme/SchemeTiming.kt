@@ -53,22 +53,102 @@ object SchemeTiming {
     }
 
     /**
-     * Aplica la coreografía y estructura de un [UsageScheme] sobre un [Project].
-     *
-     * @param scheme Plantilla a aplicar.
-     * @param current Proyecto actual sobre el que se aplica.
-     * @param keepClips Si es `true`, conserva los clips de vídeo grabados o importados.
+     * Prepara una vinculación inicial ([SchemeBinding]) auto-mapeando de forma inteligente
+     * los fondos y capas existentes en el [current] proyecto hacia los slots de la plantilla.
      */
-    fun applyToProject(
+    fun prepareInitialBinding(
         scheme: UsageScheme,
+        current: Project = Project(),
+    ): SchemeBinding {
+        // 1. Auto-mapeo de fondo
+        val bgBinding = if (scheme.background != null) {
+            val existingBg = current.backgrounds.firstOrNull()
+            BackgroundBinding(
+                uri = existingBg?.uri,
+                label = scheme.background.label.ifBlank { existingBg?.label.orEmpty().ifBlank { "Fondo" } },
+                omitted = false,
+            )
+        } else {
+            BackgroundBinding(omitted = true)
+        }
+
+        // 2. Auto-mapeo de capas de imagen y GIF
+        val existingImages = current.layers.filter { it.kind == LayerKind.PNG || it.kind == LayerKind.GIF }
+        val imageSlots = scheme.slots.filter { it.kind == SlotKind.IMAGE || it.kind == SlotKind.GIF }
+        val imageBindings = mutableMapOf<String, SlotBinding>()
+
+        imageSlots.forEachIndexed { index, slot ->
+            val match = existingImages.getOrNull(index)
+            imageBindings[slot.id] = SlotBinding(
+                slotId = slot.id,
+                uri = match?.uri,
+                label = slot.label.ifBlank { match?.label.orEmpty().ifBlank { "Imagen ${index + 1}" } },
+                omitted = false,
+            )
+        }
+
+        // 3. Auto-mapeo de textos
+        val existingTexts = current.layers.filter { it.kind == LayerKind.TEXT }
+        val textSlots = scheme.slots.filter { it.kind == SlotKind.TEXT }
+        val textBindings = mutableMapOf<String, SlotBinding>()
+
+        textSlots.forEachIndexed { index, slot ->
+            val match = existingTexts.getOrNull(index)
+            textBindings[slot.id] = SlotBinding(
+                slotId = slot.id,
+                text = match?.text?.takeIf { it.isNotBlank() } ?: slot.text,
+                label = slot.label.ifBlank { match?.label.orEmpty().ifBlank { "Texto ${index + 1}" } },
+                omitted = false,
+            )
+        }
+
+        return SchemeBinding(
+            scheme = scheme,
+            background = bgBinding,
+            slots = imageBindings + textBindings,
+            openVoiceoverOnApply = false,
+        )
+    }
+
+    /**
+     * Asigna secuencialmente una lista de URIs de imágenes a los slots de imagen del esquema.
+     */
+    fun withBatchImages(
+        binding: SchemeBinding,
+        uris: List<String>,
+    ): SchemeBinding {
+        if (uris.isEmpty()) return binding
+        val imageSlots = binding.scheme.slots.filter { it.kind == SlotKind.IMAGE || it.kind == SlotKind.GIF }
+        val updatedSlots = binding.slots.toMutableMap()
+
+        uris.forEachIndexed { index, uri ->
+            if (index < imageSlots.size) {
+                val slot = imageSlots[index]
+                val prev = updatedSlots[slot.id] ?: SlotBinding(slotId = slot.id)
+                updatedSlots[slot.id] = prev.copy(uri = uri)
+            }
+        }
+        return binding.copy(slots = updatedSlots)
+    }
+
+    /**
+     * Aplica la coreografía y estructura de un [UsageScheme] sobre un [Project]
+     * utilizando una vinculación explícita de recursos [SchemeBinding].
+     */
+    fun applyBindingToProject(
+        binding: SchemeBinding,
         current: Project = Project(),
         keepClips: Boolean = true,
     ): Project {
+        val scheme = binding.scheme
         val totalMs = scheme.totalDurationMs
         val count = scheme.stagesCount
 
-        // 1. Convertir slots a OverlayLayers
-        val newLayers = scheme.slots.mapIndexed { index, slot ->
+        // 1. Convertir slots activos a OverlayLayers inyectando URIs y textos vinculados
+        val newLayers = scheme.slots.mapNotNull { slot ->
+            val slotBinding = binding.getSlot(slot.id)
+            if (slotBinding.omitted) return@mapNotNull null
+
             val (slotStart, slotEnd) = calculateIntervalMs(
                 stageStart = slot.stageStart,
                 stageEnd = slot.stageEnd,
@@ -89,20 +169,22 @@ object SchemeTiming {
                 y = slot.y,
                 scale = slot.scale,
                 rotationDeg = slot.rotationDeg,
-                label = slot.label.ifBlank { "Slot ${index + 1}" },
-                text = slot.text,
+                label = slotBinding.label.ifBlank { slot.label.ifBlank { "Slot ${slot.id}" } },
+                uri = slotBinding.uri,
+                text = slotBinding.text ?: slot.text,
                 fontName = slot.fontName,
                 colorArgb = slot.colorArgb,
                 fontSizeSp = slot.fontSizeSp,
-                zIndex = slot.zIndex.takeIf { it != 0 } ?: index,
+                zIndex = slot.zIndex,
                 animation = slot.animation,
                 animationSpeed = slot.animationSpeed,
                 transition = slot.effectiveTransitionIn,
             )
         }
 
-        // 2. Fondo del esquema
-        val newBackgrounds = scheme.background?.let { bg ->
+        // 2. Fondo del esquema con URI vinculada
+        val newBackgrounds = if (scheme.background != null && !binding.background.omitted) {
+            val bg = scheme.background
             val (bgStart, bgEnd) = calculateIntervalMs(
                 stageStart = bg.stageStart,
                 stageEnd = bg.stageEnd,
@@ -112,15 +194,17 @@ object SchemeTiming {
             listOf(
                 BackgroundLayer(
                     id = "bg-${UUID.randomUUID().toString().take(6)}",
-                    uri = "", // Placeholder sin archivo local ligado
+                    uri = binding.background.uri.orEmpty(),
                     startMs = bgStart,
                     endMs = bgEnd,
-                    label = bg.label,
+                    label = binding.background.label.ifBlank { bg.label },
                     kenBurns = bg.kenBurns,
                     kenBurnsSpeed = bg.kenBurnsSpeed,
                 )
             )
-        } ?: current.backgrounds
+        } else {
+            emptyList()
+        }
 
         // 3. Ajustes de audio
         val audio = scheme.audio
@@ -137,6 +221,22 @@ object SchemeTiming {
             musicVolume = audio?.musicVolume ?: current.musicVolume,
             duckingAmount = audio?.duckingAmount ?: current.duckingAmount,
         )
+    }
+
+    /**
+     * Aplica la coreografía y estructura de un [UsageScheme] sobre un [Project].
+     *
+     * @param scheme Plantilla a aplicar.
+     * @param current Proyecto actual sobre el que se aplica.
+     * @param keepClips Si es `true`, conserva los clips de vídeo grabados o importados.
+     */
+    fun applyToProject(
+        scheme: UsageScheme,
+        current: Project = Project(),
+        keepClips: Boolean = true,
+    ): Project {
+        val initialBinding = prepareInitialBinding(scheme, current)
+        return applyBindingToProject(initialBinding, current, keepClips = keepClips)
     }
 
     /**

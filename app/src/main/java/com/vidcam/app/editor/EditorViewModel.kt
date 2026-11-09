@@ -282,6 +282,25 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * Prepara una vinculación inicial para el [scheme] auto-mapeando los fondos y capas
+     * existentes en el proyecto actual.
+     */
+    fun prepareSchemeBinding(scheme: UsageScheme): com.vidcam.app.model.scheme.SchemeBinding {
+        return SchemeTiming.prepareInitialBinding(scheme, _project.value)
+    }
+
+    /**
+     * Aplica la coreografía y estructura de un [UsageScheme] utilizando una vinculación
+     * de recursos locales [com.vidcam.app.model.scheme.SchemeBinding].
+     */
+    fun applySchemeWithBinding(binding: com.vidcam.app.model.scheme.SchemeBinding, keepClips: Boolean = true) {
+        update("apply_scheme_binding_${binding.scheme.id}") { current ->
+            SchemeTiming.applyBindingToProject(binding, current, keepClips = keepClips)
+        }
+        _message.value = "Esquema vinculado y aplicado: ${binding.scheme.name}"
+    }
+
+    /**
      * Aplica la coreografía y estructura de un [UsageScheme] sobre el proyecto actual.
      */
     fun applyScheme(scheme: UsageScheme, keepClips: Boolean = true) {

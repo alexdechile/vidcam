@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-11-09**: Vinculación interactiva y flexible de esquemas y objetos existentes (v1.11.0, change OpenSpec `add-scheme-slot-binding`):
+  1. **Modelo de vinculación de recursos (`SchemeBinding`)**: desacopla la coreografía abstracta del esquema de las rutas locales (`Uri`), gestionando la asignación de fondos, capas de imagen/GIF, titulares de texto y activación opcional de doblaje (`openVoiceoverOnApply`).
+  2. **Auto-mapeo inteligente (`prepareInitialBinding`)**: al abrir una plantilla, detecta automáticamente el fondo actual y las capas PNG existentes en el proyecto para pre-asignarlos en orden cronológico a los slots del esquema, preservando el contenido visual del usuario mientras adopta la coreografía, Ken Burns y animaciones.
+  3. **Selección múltiple en lote (`withBatchImages` y `PickMultipleVisualMedia`)**: atajo rápido que permite elegir todas las fotos necesarias para el esquema desde la galería de un solo toque y distribuirlas automáticamente entre el fondo y las ranuras de la plantilla.
+  4. **Hoja interactiva en Compose (`SchemeBindingSheet`)**: interfaz flexible con vista integral de slots, checkboxes para omitir ranuras no deseadas, edición in-place de textos, soporte atómico de Deshacer (`UndoHistory`) y switch opcional para lanzar el grabador de doblaje (`VoiceoverSheet`) sincronizado tras aplicar.
+
 - **2026-11-09**: Esquemas de uso y plantillas por etapas (v1.10.0, change OpenSpec `add-usage-schemes`):
   1. **Coreografía por etapas modulares (`UsageScheme` y `SchemeTiming`)**: esquemas definidos con duración total (`totalDurationSec`) y cantidad de etapas (`stagesCount`). Cálculo automático y exacto de intervalos en milisegundos (`startMs`, `endMs`) para elementos que entran en `stageStart` y permanecen hasta el final de `stageEnd`.
   2. **Preset de fábrica estrella ("5 Etapas en Cascada 15s")**: coreografía modular de 15 segundos con fondo continuo animado en paneo (etapas 1..5), Imagen 1 gancho (etapas 1..2: 0s-6s) con Pop y Flotar, Imagen 2 desarrollo (etapas 2..4: 3s-12s) con Deslizar y Pulso, Imagen 3 cierre (etapas 3..5: 6s-15s) con Pop y Vaivén, y audio completo.
