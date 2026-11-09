@@ -108,4 +108,24 @@ class VoiceoverMathTest {
         assertEquals("file:///voz.wav", cruda.activeUri)
         assertEquals("file:///voz.wav", track(durationMs = 1_000L).activeUri)
     }
+
+    @Test
+    fun `la toma doblada suena cuando el doblaje esta activo y disponible`() {
+        val limpia = track(
+            durationMs = 1_000L,
+            denoise = true,
+            processedUri = "file:///voz-limpia.wav",
+        )
+        val doblada = limpia.copy(
+            doubler = VoiceDoublerConfig.GRAVE,
+            doubledUri = "file:///voz-doblada.wav",
+        )
+        val desactivada = doblada.copy(
+            doubler = doblada.doubler?.copy(enabled = false)
+        )
+
+        assertEquals("file:///voz-doblada.wav", doblada.activeUri)
+        assertEquals("file:///voz-limpia.wav", desactivada.activeUri)
+        assertEquals("file:///voz-limpia.wav", doblada.baseUri)
+    }
 }

@@ -47,6 +47,8 @@ import com.vidcam.app.model.TimelineMath
 import com.vidcam.app.model.VideoClip
 import com.vidcam.app.model.VideoWindow
 import com.vidcam.app.model.VideoWindowMath
+import com.vidcam.app.model.VoiceDoublerConfig
+import com.vidcam.app.model.VoiceDoublerPreset
 import com.vidcam.app.model.VoiceoverMath
 import com.vidcam.app.model.VoiceoverTrack
 import com.vidcam.app.model.WideLensMode
@@ -762,6 +764,59 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             if (!ok) _message.value = "No se pudo aislar el entorno; queda la toma original"
+            val currentVoice = _project.value.voiceover
+            if (currentVoice?.doubler?.enabled == true) {
+                resynthesizeDoubler(currentVoice.doubler)
+            }
+        }
+    }
+
+    private var doublerJob: Job? = null
+
+    fun setVoiceDoublerPreset(preset: VoiceDoublerPreset) {
+        val config = VoiceDoublerConfig.forPreset(preset)
+        updateVoiceDoublerConfig(config, immediate = true)
+    }
+
+    fun updateVoiceDoublerConfig(config: VoiceDoublerConfig, immediate: Boolean = false) {
+        val voice = _project.value.voiceover ?: return
+        update("voice-doubler") { project ->
+            project.copy(voiceover = project.voiceover?.copy(doubler = config))
+        }
+
+        doublerJob?.cancel()
+        if (!config.enabled || config.preset == VoiceDoublerPreset.OFF) {
+            update("voice-doubler-clear") { project ->
+                project.copy(voiceover = project.voiceover?.copy(doubledUri = null))
+            }
+            return
+        }
+
+        doublerJob = viewModelScope.launch {
+            if (!immediate) {
+                delay(150L)
+            }
+            resynthesizeDoubler(config)
+        }
+    }
+
+    private suspend fun resynthesizeDoubler(config: VoiceDoublerConfig) {
+        val voice = _project.value.voiceover ?: return
+        val baseFile = fileOf(voice.baseUri) ?: return
+        val raw = fileOf(voice.uri) ?: baseFile
+        val doubledFile = File(raw.parentFile, "${raw.nameWithoutExtension}-doblada.wav")
+
+        _voiceProcessing.value = true
+        val ok = withContext(Dispatchers.IO) {
+            VoiceoverProcessor.applyDoubler(baseFile, doubledFile, config)
+        }
+        _voiceProcessing.value = false
+
+        if (ok) {
+            update("voice-doubler-ready") { project ->
+                val current = project.voiceover ?: return@update project
+                project.copy(voiceover = current.copy(doubledUri = Uri.fromFile(doubledFile).toString()))
+            }
         }
     }
 
@@ -772,6 +827,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         if (enabled && track.processedUri == null && !_voiceProcessing.value) {
             processVoiceover(track)
+        } else if (track.doubler?.enabled == true) {
+            updateVoiceDoublerConfig(track.doubler, immediate = true)
         }
     }
 

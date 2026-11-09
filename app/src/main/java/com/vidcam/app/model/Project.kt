@@ -272,6 +272,87 @@ data class MusicTrack(
 )
 
 /**
+ * Presets preconfigurados para doblaje automático y murmullo.
+ */
+@Serializable
+enum class VoiceDoublerPreset(val label: String) {
+    OFF("Desactivado"),
+    GRAVE("Doble Grave"),
+    AGUDO("Doble Agudo"),
+    ESTUDIO("Estudio ADT"),
+    MURMULLO("Murmullo"),
+    PERSONALIZADO("Personalizado");
+}
+
+/**
+ * Ajustes del doblador de voz y generador de murmullo multi-voz.
+ */
+@Serializable
+data class VoiceDoublerConfig(
+    val enabled: Boolean = false,
+    val preset: VoiceDoublerPreset = VoiceDoublerPreset.OFF,
+    /** Cantidad de voces clonadas añadidas a la original (1..5). */
+    val voiceCount: Int = 1,
+    /** Desplazamiento tonal principal en semitonos (-12..+12). */
+    val pitchSemitones: Int = 0,
+    /** Retardo temporal base en milisegundos (10..80 ms). */
+    val delayMs: Long = 25L,
+    /** Micro-desafinación en cents (0..30) para romper simetría y evitar comb-filtering. */
+    val detuneCents: Int = 15,
+    /** Proporción de volumen de las voces dobladas frente a la principal (0..1). */
+    val wetMix: Float = 0.5f,
+) {
+    companion object {
+        val OFF = VoiceDoublerConfig(enabled = false, preset = VoiceDoublerPreset.OFF)
+        val GRAVE = VoiceDoublerConfig(
+            enabled = true,
+            preset = VoiceDoublerPreset.GRAVE,
+            voiceCount = 1,
+            pitchSemitones = -12,
+            delayMs = 30L,
+            detuneCents = 0,
+            wetMix = 0.6f,
+        )
+        val AGUDO = VoiceDoublerConfig(
+            enabled = true,
+            preset = VoiceDoublerPreset.AGUDO,
+            voiceCount = 1,
+            pitchSemitones = 12,
+            delayMs = 25L,
+            detuneCents = 5,
+            wetMix = 0.5f,
+        )
+        val ESTUDIO = VoiceDoublerConfig(
+            enabled = true,
+            preset = VoiceDoublerPreset.ESTUDIO,
+            voiceCount = 1,
+            pitchSemitones = 0,
+            delayMs = 25L,
+            detuneCents = 15,
+            wetMix = 0.55f,
+        )
+        val MURMULLO = VoiceDoublerConfig(
+            enabled = true,
+            preset = VoiceDoublerPreset.MURMULLO,
+            voiceCount = 4,
+            pitchSemitones = -2,
+            delayMs = 45L,
+            detuneCents = 20,
+            wetMix = 0.7f,
+        )
+
+        fun forPreset(preset: VoiceDoublerPreset): VoiceDoublerConfig = when (preset) {
+            VoiceDoublerPreset.OFF -> OFF
+            VoiceDoublerPreset.GRAVE -> GRAVE
+            VoiceDoublerPreset.AGUDO -> AGUDO
+            VoiceDoublerPreset.ESTUDIO -> ESTUDIO
+            VoiceDoublerPreset.MURMULLO -> MURMULLO
+            VoiceDoublerPreset.PERSONALIZADO -> ESTUDIO.copy(preset = VoiceDoublerPreset.PERSONALIZADO)
+        }
+    }
+}
+
+/**
  * Toma de voz en off (doblaje) del proyecto.
  *
  * [uri] guarda siempre la toma cruda y [processedUri] la versión con la
@@ -291,9 +372,22 @@ data class VoiceoverTrack(
     val fadeInMs: Long = 0L,
     /** Fundido de salida de la toma, en milisegundos. */
     val fadeOutMs: Long = 0L,
+    /** Configuración del doblador de voz y murmullo. */
+    val doubler: VoiceDoublerConfig? = null,
+    /** Archivo WAV con el audio de doblaje/murmullo sintetizado. */
+    val doubledUri: String? = null,
 ) {
-    /** Archivo que suena: la versión limpia si está activada y disponible. */
+    /** Archivo que suena: versión doblada si está activa y lista, sino limpia si denoise=true, sino cruda. */
     val activeUri: String
+        get() {
+            if (doubler?.enabled == true && !doubledUri.isNullOrBlank()) {
+                return doubledUri
+            }
+            return if (denoise) processedUri ?: uri else uri
+        }
+
+    /** Toma base de audio a partir de la cual se genera el doblaje. */
+    val baseUri: String
         get() = if (denoise) processedUri ?: uri else uri
 
     /** `true` cuando la toma tiene audio que colocar en la línea de tiempo. */

@@ -44,6 +44,10 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
   −1 dBFS. El interruptor `Aislar entorno (RNNoise)` compara la toma limpia con
   la cruda sin volver a hablar. Sin la librería nativa disponible se aplica solo
   el filtro y la nivelación.
+- **Doblaje automático y murmullo**:
+  - Chips de presets rápidos: `Normal`, `Doble Grave` (-12 semitonos / cine), `Doble Agudo` (+12 semitonos / coro), `Estudio ADT` (duplicado engrosado con micro-delay y micro-detune) y `Murmullo` (4 capas desfasadas simulan una multitud).
+  - Ajustes avanzados: control granular de cantidad de voces (1 a 5), tono (-12 a +12 semitonos), desfase temporal (10 a 80 ms) y nivel de mezcla (0..100%).
+  - Procesamiento no destructivo por DSP granular en Kotlin (`VoicePitchShifter` y `VoiceDoublerEngine`), con protección anti-clipping y reflejo inmediato en vista previa y exportación MP4.
 - **Entrada**: el slider mueve la toma dentro del vídeo (−2 s recorta el
   comienzo, valores positivos la retrasan); lo que pasa del final del vídeo no
   se exporta.

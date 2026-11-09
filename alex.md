@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-11-09**: Doblaje automático y generador de murmullo multi-voz (change OpenSpec `add-voice-doubler-and-murmur`):
+  1. **Modelo de datos y presets (`VoiceDoublerConfig` y `VoiceDoublerPreset`)**: modos de 1 toque (`Normal/Desactivado`, `Doble Grave` a -12 semitonos para voz cinematográfica, `Doble Agudo` a +12 semitonos, `Estudio ADT` con micro-delay y micro-detune, `Murmullo` con 4 capas desfasadas para efecto multitud/cuchicheo, y `Personalizado`) con persistencia JSON retrocompatible en `VoiceoverTrack`.
+  2. **Motor DSP granular en Kotlin (`VoicePitchShifter` y `VoiceDoublerEngine`)**: modulación tonal (-12 a +12 semitonos) y cents sin distorsión de fase ni clics mediante doble retardo cruzado OLA, retardo temporal escalonado (10..80 ms), mezcla ponderada y compresión/normalización suave anti-clipping (-1 dBFS).
+  3. **Cadena no destructiva en `VoiceoverProcessor`**: síntesis a partir de la señal limpia existente sin reejecutar RNNoise ni alterar la grabación cruda original.
+  4. **Controles en Compose (`VoiceoverSheet`)**: chips horizontales para selección inmediata y acordeón expandible con sliders granulares (voces 1..5, semitonos, retardo y mezcla), reflejado instantáneamente en la vista previa del editor y en la exportación final MP4 con ducking preservado.
+
 - **2026-11-09**: Vinculación interactiva y flexible de esquemas y objetos existentes (v1.11.0, change OpenSpec `add-scheme-slot-binding`):
   1. **Modelo de vinculación de recursos (`SchemeBinding`)**: desacopla la coreografía abstracta del esquema de las rutas locales (`Uri`), gestionando la asignación de fondos, capas de imagen/GIF, titulares de texto y activación opcional de doblaje (`openVoiceoverOnApply`).
   2. **Auto-mapeo inteligente (`prepareInitialBinding`)**: al abrir una plantilla, detecta automáticamente el fondo actual y las capas PNG existentes en el proyecto para pre-asignarlos en orden cronológico a los slots del esquema, preservando el contenido visual del usuario mientras adopta la coreografía, Ken Burns y animaciones.

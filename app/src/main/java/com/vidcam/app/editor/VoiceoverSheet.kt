@@ -1,6 +1,7 @@
 package com.vidcam.app.editor
 
 import android.os.SystemClock
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vidcam.app.model.Project
+import com.vidcam.app.model.VoiceDoublerConfig
+import com.vidcam.app.model.VoiceDoublerPreset
 import com.vidcam.app.model.VoiceoverMath
 import kotlinx.coroutines.delay
 
@@ -64,6 +68,8 @@ fun VoiceoverSheet(
     onVoiceFades: (Long, Long) -> Unit,
     onMusicFades: (Long, Long) -> Unit,
     onDucking: (Float) -> Unit,
+    onDoublerPreset: (VoiceDoublerPreset) -> Unit = {},
+    onDoublerConfig: (VoiceDoublerConfig) -> Unit = {},
 ) {
     val voice = project.voiceover
     var elapsedMs by remember { mutableStateOf(0L) }
@@ -152,6 +158,112 @@ fun VoiceoverSheet(
                         onCheckedChange = onToggleDenoise,
                         enabled = !processing,
                     )
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Text("Doblaje automático y murmullo", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "Añade clones de voz en otro tono o genera un murmullo de multitud con control total",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(6.dp))
+
+                val doublerConfig = voice.doubler ?: VoiceDoublerConfig.OFF
+                val currentPreset = if (!doublerConfig.enabled) VoiceDoublerPreset.OFF else doublerConfig.preset
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    VoiceDoublerPreset.entries.forEach { p ->
+                        if (p != VoiceDoublerPreset.PERSONALIZADO || currentPreset == VoiceDoublerPreset.PERSONALIZADO) {
+                            FilterChip(
+                                selected = currentPreset == p,
+                                onClick = { onDoublerPreset(p) },
+                                label = { Text(p.label) },
+                                enabled = !processing,
+                            )
+                        }
+                    }
+                }
+
+                var showAdvanced by remember { mutableStateOf(false) }
+                if (doublerConfig.enabled) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (showAdvanced) "Ocultar ajustes avanzados" else "Ajustes avanzados de doblaje",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                            Text(if (showAdvanced) "Cerrar" else "Personalizar")
+                        }
+                    }
+
+                    if (showAdvanced || currentPreset == VoiceDoublerPreset.PERSONALIZADO) {
+                        SliderRow(
+                            label = "Cantidad de voces (${doublerConfig.voiceCount})",
+                            value = doublerConfig.voiceCount.toFloat(),
+                            range = 1f..5f,
+                            onChange = {
+                                onDoublerConfig(
+                                    doublerConfig.copy(
+                                        voiceCount = it.toInt(),
+                                        preset = VoiceDoublerPreset.PERSONALIZADO,
+                                    )
+                                )
+                            },
+                            enabled = !processing,
+                        )
+                        SliderRow(
+                            label = "Tono (${if (doublerConfig.pitchSemitones > 0) "+${doublerConfig.pitchSemitones}" else "${doublerConfig.pitchSemitones}"} semitonos)",
+                            value = doublerConfig.pitchSemitones.toFloat(),
+                            range = -12f..12f,
+                            onChange = {
+                                onDoublerConfig(
+                                    doublerConfig.copy(
+                                        pitchSemitones = it.toInt(),
+                                        preset = VoiceDoublerPreset.PERSONALIZADO,
+                                    )
+                                )
+                            },
+                            enabled = !processing,
+                        )
+                        SliderRow(
+                            label = "Desfase temporal (${doublerConfig.delayMs} ms)",
+                            value = doublerConfig.delayMs.toFloat(),
+                            range = 10f..80f,
+                            onChange = {
+                                onDoublerConfig(
+                                    doublerConfig.copy(
+                                        delayMs = it.toLong(),
+                                        preset = VoiceDoublerPreset.PERSONALIZADO,
+                                    )
+                                )
+                            },
+                            enabled = !processing,
+                        )
+                        SliderRow(
+                            label = "Mezcla de doblaje (${(doublerConfig.wetMix * 100).toInt()} %)",
+                            value = doublerConfig.wetMix,
+                            range = 0f..1f,
+                            onChange = {
+                                onDoublerConfig(
+                                    doublerConfig.copy(
+                                        wetMix = it,
+                                        preset = VoiceDoublerPreset.PERSONALIZADO,
+                                    )
+                                )
+                            },
+                            enabled = !processing,
+                        )
+                    }
                 }
                 SliderRow(
                     label = "Volumen de la voz",

@@ -42,6 +42,22 @@ object VoiceoverProcessor {
     }
 
     /**
+     * Aplica el doblador y murmullo multi-voz sobre [input] según [config],
+     * escribiendo el resultado en [output].
+     */
+    fun applyDoubler(
+        input: File,
+        output: File,
+        config: com.vidcam.app.model.VoiceDoublerConfig,
+    ): Boolean {
+        val audio = WavFile.read(input) ?: return false
+        val samples = audio.samples
+        if (samples.isEmpty()) return false
+        val doubled = VoiceDoublerEngine.process(samples, audio.sampleRate, config)
+        return WavFile.write(output, doubled, audio.sampleRate)
+    }
+
+    /**
      * Mezcla la salida de RNNoise con la señal original: [strength] en 1 suena
      * limpio y en 0 queda el crudo solo con el filtro paso alto.
      */

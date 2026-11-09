@@ -515,6 +515,8 @@ fun EditorScreen(
             onVoiceFades = viewModel::setVoiceFades,
             onMusicFades = viewModel::setMusicFades,
             onDucking = viewModel::setDucking,
+            onDoublerPreset = viewModel::setVoiceDoublerPreset,
+            onDoublerConfig = viewModel::updateVoiceDoublerConfig,
         )
     }
 

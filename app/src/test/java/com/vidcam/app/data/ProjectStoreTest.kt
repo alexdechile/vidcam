@@ -236,4 +236,33 @@ class ProjectStoreTest {
         val background = store.load("viejo")?.project?.backgrounds?.first()
         assertEquals(KenBurnsMode.NINGUNO, background?.kenBurns)
     }
+
+    @Test
+    fun `una toma de voz guardada antes del doblador carga con doubler nulo`() {
+        val legacy = """
+            {
+              "id": "voz-vieja",
+              "name": "Voz Vieja",
+              "createdAtMs": 0,
+              "updatedAtMs": 0,
+              "project": {
+                "voiceover": {
+                  "uri": "file:///data/media/voz.wav",
+                  "processedUri": "file:///data/media/voz-clean.wav",
+                  "denoise": true,
+                  "startMs": 0,
+                  "durationMs": 4000,
+                  "volume": 0.8
+                }
+              }
+            }
+        """.trimIndent()
+        temp.root.resolve("projects").mkdirs()
+        temp.root.resolve("projects").resolve("voz-vieja.json").writeText(legacy)
+
+        val voice = store.load("voz-vieja")?.project?.voiceover
+        assertEquals("file:///data/media/voz.wav", voice?.uri)
+        assertNull(voice?.doubler)
+        assertNull(voice?.doubledUri)
+    }
 }
