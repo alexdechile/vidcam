@@ -208,8 +208,10 @@ class LayerAnimationTest {
             animationSpeed = AnimationSpeed.RAPIDO,
         )
         val atStart = zoomOut.resolvedAt(0L)
-        val atPeak = zoomOut.resolvedAt(1_500L)
+        val atMid = zoomOut.resolvedAt(900L)
+        val atPeak = zoomOut.resolvedAt(1_875L)
         assertTrue(atStart.scale > 1.4f)
+        assertTrue(atMid.scale < atStart.scale)
         assertEquals(1.0f, atPeak.scale, 0.01f)
     }
 
