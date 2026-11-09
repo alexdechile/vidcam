@@ -2,6 +2,12 @@
 
 ## Último Realizado
 
+- **2026-11-09**: Esquemas de uso y plantillas por etapas (v1.10.0, change OpenSpec `add-usage-schemes`):
+  1. **Coreografía por etapas modulares (`UsageScheme` y `SchemeTiming`)**: esquemas definidos con duración total (`totalDurationSec`) y cantidad de etapas (`stagesCount`). Cálculo automático y exacto de intervalos en milisegundos (`startMs`, `endMs`) para elementos que entran en `stageStart` y permanecen hasta el final de `stageEnd`.
+  2. **Preset de fábrica estrella ("5 Etapas en Cascada 15s")**: coreografía modular de 15 segundos con fondo continuo animado en paneo (etapas 1..5), Imagen 1 gancho (etapas 1..2: 0s-6s) con Pop y Flotar, Imagen 2 desarrollo (etapas 2..4: 3s-12s) con Deslizar y Pulso, Imagen 3 cierre (etapas 3..5: 6s-15s) con Pop y Vaivén, y audio completo.
+  3. **Persistencia atómica y portabilidad JSON (`SchemeStore`)**: guardado, listado y eliminación de esquemas en la carpeta `templates/` sin rutas locales privadas, permitiendo exportar e importar plantillas vía texto JSON compartido.
+  4. **Hoja modal en Compose (`SchemesSheet`)**: interfaz interactiva con diagrama visual de barras de etapas, selector por categorías ("Todos", "De fábrica", "Mis esquemas"), acción "Guardar como esquema" y soporte de Deshacer (`UndoHistory`).
+
 - **2026-11-08**: Ken Burns acelerado, selector de velocidad y nuevas animaciones PNG en fondos y capas (v1.9.0, change OpenSpec `add-png-animations-and-fast-ken-burns`):
   1. **Ken Burns acelerado + selector de velocidad (`Normal`, `Rápido`, `Turbo`)**: se aumentó la amplitud de zoom (`36 %` en `Normal`, `50 %` en `Rápido`, `68 %` en `Turbo`) y en velocidades `Rápido`/`Turbo` los tramos largos hacen vaivén continuo ágil para que el movimiento sea dinámico desde el primer segundo.
   2. **Nuevos modos en fondos y capas PNG (`KenBurnsMode` y `PngAnimationPreset`)**: además de `Acercar`, `Alejar` y `Automático`, se sumaron `Paneo`, `Diagonal`, `Pulso` (latido rítmico), `Flotar` (levitación suave), `Vaivén` (péndulo rotacional) y `Temblor` (vibración enérgica), manteniendo en `KenBurnsTransformation` el cálculo de cobertura para que nunca asomen bordes negros.

@@ -10,6 +10,10 @@ import com.vidcam.app.audio.VoiceoverRecorder
 import com.vidcam.app.audio.WavFile
 import com.vidcam.app.data.ProjectStore
 import com.vidcam.app.data.SavedProject
+import com.vidcam.app.data.SavedScheme
+import com.vidcam.app.data.SchemeStore
+import com.vidcam.app.model.scheme.SchemeTiming
+import com.vidcam.app.model.scheme.UsageScheme
 import com.vidcam.app.data.TranscriptSegment
 import com.vidcam.app.data.TranscriptionClient
 import com.vidcam.app.data.TranscriptionResult
@@ -108,6 +112,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _savedProjects = MutableStateFlow<List<SavedProject>>(emptyList())
     val savedProjects: StateFlow<List<SavedProject>> = _savedProjects.asStateFlow()
 
+    private val _savedSchemes = MutableStateFlow<List<SavedScheme>>(emptyList())
+    val savedSchemes: StateFlow<List<SavedScheme>> = _savedSchemes.asStateFlow()
+
     private val _currentProjectId = MutableStateFlow<String?>(null)
     val currentProjectId: StateFlow<String?> = _currentProjectId.asStateFlow()
 
@@ -124,6 +131,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private var voiceStopJob: Job? = null
     private val exporter = VideoExporter(application)
     private val projectStore = ProjectStore(File(application.filesDir, "projects"))
+    private val schemeStore = SchemeStore(File(application.filesDir, "templates"))
     private val history = UndoHistory()
 
     /** Última versión que coincide con lo guardado en disco, para calcular `dirty`. */
@@ -134,6 +142,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         refreshSavedProjects()
+        refreshSavedSchemes()
     }
 
     fun consumeMessage() {
@@ -262,6 +271,94 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             _message.value = if (ok) "Proyecto eliminado" else "No se pudo eliminar"
             refreshSavedProjects()
         }
+    }
+
+    // --- Esquemas de uso y plantillas --------------------------------------
+
+    fun refreshSavedSchemes() {
+        viewModelScope.launch {
+            _savedSchemes.value = withContext(Dispatchers.IO) { schemeStore.list() }
+        }
+    }
+
+    /**
+     * Aplica la coreografía y estructura de un [UsageScheme] sobre el proyecto actual.
+     */
+    fun applyScheme(scheme: UsageScheme, keepClips: Boolean = true) {
+        update("apply_scheme_${scheme.id}") { current ->
+            SchemeTiming.applyToProject(scheme, current, keepClips = keepClips)
+        }
+        _message.value = "Esquema aplicado: ${scheme.name}"
+    }
+
+    /**
+     * Guarda la composición visual actual como un esquema en formato JSON.
+     */
+    fun saveCurrentAsScheme(name: String, stagesCount: Int = 5) {
+        val project = _project.value
+        if (project.layers.isEmpty() && project.backgrounds.isEmpty()) {
+            _message.value = "Se necesita al menos una capa o fondo para crear un esquema"
+            return
+        }
+        val cleanName = name.trim().ifBlank { "Mi Esquema" }
+        val id = "scheme-${System.currentTimeMillis()}"
+        val scheme = SchemeTiming.createFromProject(
+            project = project,
+            id = id,
+            name = cleanName,
+            stagesCount = stagesCount,
+        )
+        val nowMs = System.currentTimeMillis()
+        val saved = SavedScheme(
+            id = id,
+            name = cleanName,
+            createdAtMs = nowMs,
+            updatedAtMs = nowMs,
+            isCustom = true,
+            scheme = scheme,
+        )
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { schemeStore.save(saved) }
+            if (ok) {
+                _message.value = "Esquema guardado: $cleanName"
+                refreshSavedSchemes()
+            } else {
+                _message.value = "No se pudo guardar el esquema"
+            }
+        }
+    }
+
+    fun deleteScheme(id: String) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { schemeStore.delete(id) }
+            _message.value = if (ok) "Esquema eliminado" else "No se pudo eliminar el esquema"
+            refreshSavedSchemes()
+        }
+    }
+
+    fun exportSchemeJson(scheme: UsageScheme): String =
+        schemeStore.exportToJson(scheme)
+
+    fun importScheme(jsonText: String): Boolean {
+        val scheme = schemeStore.importFromJson(jsonText) ?: return false
+        val nowMs = System.currentTimeMillis()
+        val id = "imported-$nowMs"
+        val saved = SavedScheme(
+            id = id,
+            name = scheme.name.ifBlank { "Esquema importado" },
+            createdAtMs = nowMs,
+            updatedAtMs = nowMs,
+            isCustom = true,
+            scheme = scheme.copy(id = id),
+        )
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { schemeStore.save(saved) }
+            if (ok) {
+                _message.value = "Esquema importado: ${saved.name}"
+                refreshSavedSchemes()
+            }
+        }
+        return true
     }
 
     private fun defaultProjectName(nowMs: Long): String {

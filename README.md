@@ -10,7 +10,7 @@ pantalla completa por tramos con efecto Ken Burns de zoom, ventana de vídeo mó
 imágenes y música compartidos desde otras apps, capas GIF animadas, vídeos
 hechos solo con imágenes, voz en off (doblaje) con aislación de entorno y
 volumen por pista, subtítulos quemados con transcripción y mezcla con fundidos
-y ducking.
+y ducking, y esquemas de uso y plantillas modulares por etapas en JSON.
 
 El comportamiento y las decisiones técnicas están especificados en OpenSpec, en
 `openspec/changes/add-vidcam-mvp/`,
@@ -21,8 +21,17 @@ El comportamiento y las decisiones técnicas están especificados en OpenSpec, e
 `openspec/changes/add-shared-file-intake/`,
 `openspec/changes/add-gif-and-still-videos/`,
 `openspec/changes/add-voiceover/`,
-`openspec/changes/add-captions-and-audio-mix/` y
+`openspec/changes/add-captions-and-audio-mix/`,
+`openspec/changes/add-png-animations-and-fast-ken-burns/`,
+`openspec/changes/add-usage-schemes/` y
 `openspec/changes/add-ken-burns-effect/`.
+
+## Esquemas y Plantillas por Etapas (JSON)
+
+- **Coreografía por compases/etapas**: en lugar de calcular milisegundos a mano, los esquemas dividen la duración (p. ej. 15 s) en etapas modulares (p. ej. 5 etapas de 3 s cada una). Los elementos entran y salen referenciando su rango de etapas (`stageStart` y `stageEnd`).
+- **Plantilla de 5 etapas en cascada**: preset de fábrica integrado con fondo continuo animado en paneo (1..5), gancho inicial en etapas 1..2 (0s a 6s), desarrollo en etapas 2..4 (3s a 12s) y cierre en 3..5 (6s a 15s).
+- **JSON portable**: guarda la estructura de capas, fondos, transiciones y animaciones procedimentales sin rutas locales a archivos privados, permitiendo compartir y reutilizar plantillas fácilmente.
+- **Acceso desde el editor**: menú `Plantillas y esquemas…` para previsualizar el diagrama visual de etapas, aplicar a un proyecto o guardar la composición actual como nuevo esquema.
 
 ## Voz en off
 

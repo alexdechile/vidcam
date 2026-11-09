@@ -24,4 +24,16 @@ object ShareUtils {
             },
         )
     }
+
+    fun shareText(context: Context, text: String, title: String = "Compartir esquema JSON") {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, title).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+    }
 }

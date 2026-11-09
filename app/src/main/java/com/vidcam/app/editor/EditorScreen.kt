@@ -185,6 +185,7 @@ fun EditorScreen(
     val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
     val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
     val savedProjects by viewModel.savedProjects.collectAsStateWithLifecycle()
+    val savedSchemes by viewModel.savedSchemes.collectAsStateWithLifecycle()
     val currentProjectName by viewModel.currentProjectName.collectAsStateWithLifecycle()
     val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
     val dirty by viewModel.dirty.collectAsStateWithLifecycle()
@@ -210,6 +211,7 @@ fun EditorScreen(
     var showExportPreviewDialog by remember { mutableStateOf(false) }
     var showVoiceSheet by remember { mutableStateOf(false) }
     var showCaptionsSheet by remember { mutableStateOf(false) }
+    var showSchemesSheet by remember { mutableStateOf(false) }
     var voiceRestartSignal by remember { mutableStateOf(0) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
     var editingLayer by remember { mutableStateOf<OverlayLayer?>(null) }
@@ -340,6 +342,15 @@ fun EditorScreen(
                                     showProjectMenu = false
                                     viewModel.refreshSavedProjects()
                                     showOpenDialog = true
+                                },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Plantillas y esquemas…") },
+                                onClick = {
+                                    showProjectMenu = false
+                                    viewModel.refreshSavedSchemes()
+                                    showSchemesSheet = true
                                 },
                             )
                         }
@@ -523,6 +534,22 @@ fun EditorScreen(
 
     if (showMusicSheet) {
         MusicSheet(viewModel = viewModel, onDismiss = { showMusicSheet = false })
+    }
+
+    if (showSchemesSheet) {
+        SchemesSheet(
+            schemes = savedSchemes,
+            onDismiss = { showSchemesSheet = false },
+            onApply = { scheme ->
+                viewModel.applyScheme(scheme)
+            },
+            onSaveCurrent = { name, stages ->
+                viewModel.saveCurrentAsScheme(name, stages)
+            },
+            onDelete = viewModel::deleteScheme,
+            onExportJson = viewModel::exportSchemeJson,
+            onImportJson = viewModel::importScheme,
+        )
     }
 
     if (showTextDialog) {
