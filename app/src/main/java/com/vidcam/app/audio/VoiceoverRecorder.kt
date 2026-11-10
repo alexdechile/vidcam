@@ -37,6 +37,7 @@ class VoiceoverRecorder(private val context: Context) {
     private var rawFile: File? = null
     private var wavFile: File? = null
     private var stream: FileOutputStream? = null
+    private var levelCallback: ((Float) -> Unit)? = null
 
     @Volatile
     private var running = false
@@ -69,6 +70,7 @@ class VoiceoverRecorder(private val context: Context) {
         raw.delete()
         rawFile = raw
         wavFile = wav
+        levelCallback = onLevel
         stream = try {
             FileOutputStream(raw)
         } catch (_: Exception) {
@@ -122,7 +124,8 @@ class VoiceoverRecorder(private val context: Context) {
         if (!running || paused) return
         paused = true
         isPaused = true
-        mainHandler.post { onLevel(0f) }
+        val cb = levelCallback
+        if (cb != null) mainHandler.post { cb(0f) }
     }
 
     /** Reanuda la grabación desde el punto donde se pausó. */
@@ -165,6 +168,7 @@ class VoiceoverRecorder(private val context: Context) {
         }
         audioRecord.release()
         record = null
+        levelCallback = null
         try {
             stream?.flush()
             stream?.close()
