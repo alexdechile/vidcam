@@ -2,6 +2,7 @@ package com.vidcam.app.model.scheme
 
 import com.vidcam.app.model.BackgroundLayer
 import com.vidcam.app.model.LayerKind
+import com.vidcam.app.model.MAX_DURATION_MS
 import com.vidcam.app.model.OverlayLayer
 import com.vidcam.app.model.Project
 import java.util.UUID

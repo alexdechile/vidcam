@@ -119,14 +119,12 @@ object FrameExporter {
 
             // Aplicar Ken Burns si está activo
             if (activeBg != null && KenBurnsMath.isActive(activeBg.kenBurns)) {
-                val totalDuration = (activeBg.endMs - activeBg.startMs).coerceAtLeast(1L)
-                val elapsed = (timeMs - activeBg.startMs).coerceIn(0L, totalDuration)
-                val progress = elapsed.toFloat() / totalDuration.toFloat()
-                val kbTransform = KenBurnsMath.resolve(
+                val kbTransform = KenBurnsMath.transformAt(
                     mode = activeBg.kenBurns,
-                    progress = progress,
-                    aspectRatio = width.toFloat() / height.toFloat(),
-                    speed = activeBg.speed,
+                    index = 0,
+                    startMs = activeBg.startMs,
+                    endMs = activeBg.endMs,
+                    timeMs = timeMs,
                 )
                 matrix.postScale(
                     kbTransform.scale,
@@ -135,9 +133,12 @@ object FrameExporter {
                     height * 0.5f,
                 )
                 matrix.postTranslate(
-                    kbTransform.anchorX * width,
-                    kbTransform.anchorY * height,
+                    kbTransform.offsetX * width,
+                    kbTransform.offsetY * height,
                 )
+                if (kbTransform.rotationDeg != 0f) {
+                    matrix.postRotate(kbTransform.rotationDeg, width * 0.5f, height * 0.5f)
+                }
             }
 
             canvas.drawBitmap(bgBitmap, matrix, paint)
@@ -173,8 +174,8 @@ object FrameExporter {
                 scale = videoWindow.scale,
             )
 
-            val cx = (0.5f + videoWindow.translationX) * frameWidth
-            val cy = (0.5f + videoWindow.translationY) * frameHeight
+            val cx = videoWindow.x * frameWidth.toFloat()
+            val cy = videoWindow.y * frameHeight.toFloat()
 
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             if (activeClip.colorFilter != ColorFilterPreset.NINGUNO) {
@@ -297,8 +298,8 @@ object FrameExporter {
         ) ?: return
 
         try {
-            val yPos = project.captionStyle.verticalPositionFraction * height - captionBitmap.height * 0.5f
-            val xPos = (width - captionBitmap.width) * 0.5f
+            val yPos = project.captionStyle.yFraction * height.toFloat() - captionBitmap.height.toFloat() * 0.5f
+            val xPos = (width.toFloat() - captionBitmap.width.toFloat()) * 0.5f
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             canvas.drawBitmap(captionBitmap, xPos, yPos, paint)
         } finally {
