@@ -51,10 +51,12 @@ import kotlinx.coroutines.delay
 fun VoiceoverSheet(
     project: Project,
     recording: Boolean,
+    paused: Boolean = false,
     processing: Boolean,
     level: Float,
     totalMs: Long,
     onStart: () -> Unit,
+    onPauseToggle: () -> Unit = {},
     onStop: () -> Unit,
     onDismiss: () -> Unit,
     onToggleDenoise: (Boolean) -> Unit,
@@ -74,15 +76,18 @@ fun VoiceoverSheet(
     val voice = project.voiceover
     var elapsedMs by remember { mutableStateOf(0L) }
 
-    LaunchedEffect(recording) {
+    LaunchedEffect(recording, paused) {
         if (!recording) {
             elapsedMs = 0L
             return@LaunchedEffect
         }
-        val startedAt = SystemClock.elapsedRealtime()
+        if (paused) return@LaunchedEffect
+        var lastTick = SystemClock.elapsedRealtime()
         while (true) {
-            elapsedMs = SystemClock.elapsedRealtime() - startedAt
-            delay(100L)
+            delay(50L)
+            val now = SystemClock.elapsedRealtime()
+            elapsedMs += (now - lastTick)
+            lastTick = now
         }
     }
 
@@ -104,30 +109,47 @@ fun VoiceoverSheet(
             )
 
             Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = if (recording) onStop else onStart,
-                    enabled = totalMs > 0L && !processing,
-                ) {
-                    Text(
-                        when {
-                            recording -> "Detener"
-                            voice == null -> "Grabar"
-                            else -> "Regrabar"
-                        },
-                    )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (recording) {
+                    Button(
+                        onClick = onPauseToggle,
+                        enabled = !processing,
+                    ) {
+                        Text(if (paused) "Continuar" else "Pausar")
+                    }
+                    Button(
+                        onClick = onStop,
+                        enabled = !processing,
+                    ) {
+                        Text("Detener")
+                    }
+                } else {
+                    Button(
+                        onClick = onStart,
+                        enabled = totalMs > 0L && !processing,
+                    ) {
+                        Text(
+                            when {
+                                voice == null -> "Grabar"
+                                else -> "Regrabar"
+                            },
+                        )
+                    }
                 }
-                Spacer(Modifier.width(12.dp))
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     LinearProgressIndicator(
-                        progress = { if (recording) level else 0f },
+                        progress = { if (recording && !paused) level else 0f },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
                         text = when {
+                            recording && paused -> "${formatMs(elapsedMs)} / ${formatMs(totalMs)} (Pausa)"
                             recording -> "${formatMs(elapsedMs)} / ${formatMs(totalMs)}"
                             processing -> "Aislando el entorno…"
                             voice != null -> "Toma de ${formatMs(voice.durationMs)}"

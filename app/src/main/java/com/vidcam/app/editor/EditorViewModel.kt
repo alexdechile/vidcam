@@ -100,6 +100,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _voiceRecording = MutableStateFlow(false)
     val voiceRecording: StateFlow<Boolean> = _voiceRecording.asStateFlow()
 
+    private val _voicePaused = MutableStateFlow(false)
+    val voicePaused: StateFlow<Boolean> = _voicePaused.asStateFlow()
+
     private val _voiceLevel = MutableStateFlow(0f)
     val voiceLevel: StateFlow<Float> = _voiceLevel.asStateFlow()
 
@@ -701,11 +704,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
         voiceDir.mkdirs()
         val wav = File(voiceDir, "voz-${System.currentTimeMillis()}.wav")
+        _voicePaused.value = false
         val started = voiceRecorder.start(
             wav = wav,
             onLevel = { level -> _voiceLevel.value = level },
             onFinished = { file ->
                 _voiceRecording.value = false
+                _voicePaused.value = false
                 _voiceLevel.value = 0f
                 if (file != null) applyVoiceoverTake(file)
             },
@@ -715,19 +720,53 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             return false
         }
         _voiceRecording.value = true
+        _voicePaused.value = false
         _voiceLevel.value = 0f
         voiceStopJob?.cancel()
         voiceStopJob = viewModelScope.launch {
-            delay(totalMs + 120L)
+            var activeMs = 0L
+            val stepMs = 50L
+            while (activeMs < totalMs + 120L) {
+                delay(stepMs)
+                if (!_voiceRecording.value) break
+                if (!_voicePaused.value) {
+                    activeMs += stepMs
+                }
+            }
             if (_voiceRecording.value) stopVoiceoverTake()
         }
         return true
+    }
+
+    /** Pausa temporalmente la toma de voz. */
+    fun pauseVoiceoverTake() {
+        if (!_voiceRecording.value || _voicePaused.value) return
+        voiceRecorder.pause()
+        _voicePaused.value = true
+        _voiceLevel.value = 0f
+    }
+
+    /** Reanuda la toma de voz pausada. */
+    fun resumeVoiceoverTake() {
+        if (!_voiceRecording.value || !_voicePaused.value) return
+        voiceRecorder.resume()
+        _voicePaused.value = false
+    }
+
+    /** Alterna entre pausa y reanudación de la toma de voz. */
+    fun toggleVoiceoverPause() {
+        if (_voicePaused.value) {
+            resumeVoiceoverTake()
+        } else {
+            pauseVoiceoverTake()
+        }
     }
 
     /** Detiene la toma en curso; el resultado llega por [applyVoiceoverTake]. */
     fun stopVoiceoverTake() {
         voiceStopJob?.cancel()
         voiceStopJob = null
+        _voicePaused.value = false
         voiceRecorder.stop()
     }
 

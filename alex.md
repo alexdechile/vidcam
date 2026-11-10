@@ -2,6 +2,24 @@
 
 ## Último Realizado
 
+- **2026-11-09**: Sincronización profesional de Voice Over: reproducción automática desde el inicio y pausa/reanudación bidireccional vídeo-voz:
+  1. **Arranque sincronizado desde 0 ms**:
+     - Al presionar *"Grabar"* o *"Regrabar"* en `VoiceoverSheet`, se dispara `voiceRestartSignal`, el reproductor de vídeo (`videoPlayer`) y el de música (`musicPlayer`) rebobinan a 0 y arrancan la reproducción de inmediato (`play()`).
+     - En proyectos de imágenes fijas sin clips de vídeo (`clips.isEmpty()`), el reloj de animación (`stillPositionMs`) se reinicia a 0 ms para comenzar desde el primer instante.
+  2. **Pausa y reanudación en el motor de audio (`VoiceoverRecorder`)**:
+     - Nuevos métodos `pause()` y `resume()` y flags `paused`/`isPaused`. Mientras la grabación está en pausa, se siguen leyendo las muestras del hardware para evitar desbordes de buffer pero se descartan antes de escribir al PCM, enviando nivel 0f.
+     - Al reanudar, la escritura al archivo de audio continúa en el mismo flujo sin saltos ni desincronización.
+  3. **Control y temporizador elástico en `EditorViewModel`**:
+     - Estados reactivos `_voicePaused` y `voicePaused` expuestos como `StateFlow<Boolean>`.
+     - Funciones `pauseVoiceoverTake()`, `resumeVoiceoverTake()` y `toggleVoiceoverPause()`.
+     - El job de parada automática (`voiceStopJob`) ahora acumula tiempo activo real en pasos de 50 ms únicamente cuando no está pausado (`!_voicePaused.value`), permitiendo pausas libres de cualquier duración sin que la toma se cierre prematuramente.
+  4. **Sincronización del reproductor en `EditorScreen` (`TimelinePreview`)**:
+     - Observa `voiceRecording` y `voicePaused`: si el locutor pausa, el vídeo (`videoPlayer.pause()`) y la música (`musicPlayer.pause()`) se detienen en seco en el fotograma exacto; en proyectos solo con PNG el reloj `stillPositionMs` se congela.
+     - Al continuar la grabación, el vídeo, la música y el reloj de still reanudan automáticamente (`videoPlayer.play()`, `musicPlayer.play()`).
+  5. **Controles dedicados en `VoiceoverSheet`**:
+     - Durante la toma activa se muestran los botones *"Pausar" / "Continuar"* y *"Detener"*.
+     - El cronómetro de tiempo transcurrido (`elapsedMs`) se congela durante la pausa y el texto de estado indica `"(Pausa)"`.
+
 - **2026-11-09**: Límite de duración extendido a 5 minutos, clips importados íntegros y exportación de fotograma PNG en alta calidad (change OpenSpec `extend-duration-limit`):
   1. **Límite base a 5 minutos (`MAX_DURATION_MS = 300_000L`)**:
      - Se elevó la constante global de 30 s a 300 s (5 minutos) para grabaciones de cámara, proyectos de imágenes fijas y presupuesto del timeline.

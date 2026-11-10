@@ -191,6 +191,7 @@ fun EditorScreen(
     val currentProjectId by viewModel.currentProjectId.collectAsStateWithLifecycle()
     val dirty by viewModel.dirty.collectAsStateWithLifecycle()
     val voiceRecording by viewModel.voiceRecording.collectAsStateWithLifecycle()
+    val voicePaused by viewModel.voicePaused.collectAsStateWithLifecycle()
     val voiceLevel by viewModel.voiceLevel.collectAsStateWithLifecycle()
     val voiceProcessing by viewModel.voiceProcessing.collectAsStateWithLifecycle()
     val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
@@ -407,6 +408,8 @@ fun EditorScreen(
                         onWindowGesture = viewModel::updateVideoWindow,
                         onMotionAutoStop = { viewModel.setMotionRecording(false) },
                         voiceTakeRestart = voiceRestartSignal,
+                        voiceRecording = voiceRecording,
+                        voicePaused = voicePaused,
                         monitorScale = if (voiceRecording) VOICE_MONITOR_SCALE else 1f,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -494,6 +497,7 @@ fun EditorScreen(
         VoiceoverSheet(
             project = project,
             recording = voiceRecording,
+            paused = voicePaused,
             processing = voiceProcessing,
             level = voiceLevel,
             totalMs = project.outputDurationMs,
@@ -503,6 +507,7 @@ fun EditorScreen(
                 voiceRestartSignal++
                 viewModel.startVoiceoverTake()
             },
+            onPauseToggle = viewModel::toggleVoiceoverPause,
             onStop = viewModel::stopVoiceoverTake,
             onDismiss = {
                 if (voiceRecording) viewModel.stopVoiceoverTake()
@@ -1988,6 +1993,8 @@ private fun TimelinePreview(
     onWindowGesture: (VideoWindow) -> Unit,
     onMotionAutoStop: () -> Unit,
     voiceTakeRestart: Int = 0,
+    voiceRecording: Boolean = false,
+    voicePaused: Boolean = false,
     monitorScale: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
@@ -2076,6 +2083,9 @@ private fun TimelinePreview(
 
     val recordingNow by rememberUpdatedState(motionRecording)
     val onMotionAutoStopNow by rememberUpdatedState(onMotionAutoStop)
+    val voiceTakeRestartNow by rememberUpdatedState(voiceTakeRestart)
+    val voiceRecordingNow by rememberUpdatedState(voiceRecording)
+    val voicePausedNow by rememberUpdatedState(voicePaused)
 
     // Volúmenes de la mezcla, con fundidos y ducking. Se recalculan 20 veces por
     // segundo: es lo mismo que hace la exportación con una envolvente, y así la
@@ -2143,12 +2153,31 @@ private fun TimelinePreview(
     }
 
     // Volver al principio al empezar una toma: la voz queda alineada con el
-    // vídeo sin que el usuario tenga que rebobinar a mano.
+    // vídeo sin que el usuario tenga que rebobinar a mano y arranca de inmediato.
     LaunchedEffect(voiceTakeRestart) {
         if (voiceTakeRestart > 0) {
             videoPlayer.seekTo(0L)
             musicPlayer.seekTo(0L)
             voicePlayer.pause()
+            videoPlayer.play()
+            if (project.music != null && project.musicEnabled) {
+                musicPlayer.play()
+            }
+        }
+    }
+
+    // Sincronización de pausa y reanudación durante la toma de voz:
+    LaunchedEffect(voiceRecording, voicePaused) {
+        if (voiceRecording) {
+            if (voicePaused) {
+                videoPlayer.pause()
+                musicPlayer.pause()
+            } else {
+                videoPlayer.play()
+                if (project.music != null && project.musicEnabled) {
+                    musicPlayer.play()
+                }
+            }
         }
     }
 
@@ -2186,6 +2215,7 @@ private fun TimelinePreview(
         var stillPositionMs = 0L
         var lastFrameNanos = 0L
         var wasRecording = false
+        var lastVoiceRestart = voiceTakeRestartNow
         while (true) {
             if (clipsState.value.isEmpty()) {
                 val nanos = withFrameNanos { it }
@@ -2195,8 +2225,15 @@ private fun TimelinePreview(
                     previousPositionMs = 0L
                     reachedEnd = false
                 }
+                if (voiceTakeRestartNow != lastVoiceRestart) {
+                    lastVoiceRestart = voiceTakeRestartNow
+                    stillPositionMs = 0L
+                    previousPositionMs = 0L
+                    reachedEnd = false
+                }
                 wasRecording = recordingNow
-                if (lastFrameNanos != 0L && total > 0L) {
+                val isStillPaused = voiceRecordingNow && voicePausedNow
+                if (lastFrameNanos != 0L && total > 0L && !isStillPaused) {
                     val next = (stillPositionMs + (nanos - lastFrameNanos) / 1_000_000L) % total
                     if (recordingNow) {
                         if (next >= total - 100L) reachedEnd = true
@@ -2214,6 +2251,7 @@ private fun TimelinePreview(
                 positionMs = stillPositionMs
                 continue
             }
+            lastVoiceRestart = voiceTakeRestartNow
             wasRecording = recordingNow
             lastFrameNanos = 0L
             stillPositionMs = 0L

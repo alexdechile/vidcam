@@ -41,7 +41,13 @@ class VoiceoverRecorder(private val context: Context) {
     @Volatile
     private var running = false
 
+    @Volatile
+    private var paused = false
+
     var isRecording: Boolean = false
+        private set
+
+    var isPaused: Boolean = false
         private set
 
     /**
@@ -71,7 +77,9 @@ class VoiceoverRecorder(private val context: Context) {
         }
         record = audioRecord
         running = true
+        paused = false
         isRecording = true
+        isPaused = false
 
         thread = Thread({
             val buffer = ShortArray(SAMPLE_RATE / 1000 * READ_MS)
@@ -82,6 +90,11 @@ class VoiceoverRecorder(private val context: Context) {
                     val read = audioRecord.read(buffer, 0, buffer.size)
                     if (read <= 0) {
                         if (!running) break
+                        continue
+                    }
+                    if (paused) {
+                        // En pausa se consumen las muestras del hardware para
+                        // no desbordar el buffer, pero se descartan y no se escriben.
                         continue
                     }
                     stream?.write(WavFile.toBytes(buffer, read))
@@ -104,10 +117,27 @@ class VoiceoverRecorder(private val context: Context) {
         return true
     }
 
+    /** Pausa temporalmente la grabación sin cerrar el archivo. */
+    fun pause() {
+        if (!running || paused) return
+        paused = true
+        isPaused = true
+        mainHandler.post { onLevel(0f) }
+    }
+
+    /** Reanuda la grabación desde el punto donde se pausó. */
+    fun resume() {
+        if (!running || !paused) return
+        paused = false
+        isPaused = false
+    }
+
     /** Pide detener la toma. El cierre y el WAV final llegan por [onFinished]. */
     fun stop() {
         if (!running) return
         running = false
+        paused = false
+        isPaused = false
         val active = record
         try {
             active?.stop()
@@ -125,7 +155,9 @@ class VoiceoverRecorder(private val context: Context) {
 
     private fun finish(audioRecord: AudioRecord, onFinished: (File?) -> Unit) {
         running = false
+        paused = false
         isRecording = false
+        isPaused = false
         try {
             audioRecord.stop()
         } catch (_: Exception) {
