@@ -36,10 +36,18 @@ class TimelineMathTest {
 
     @Test
     fun trimToMaxCapsLength() {
-        val result = TimelineMath.trimToMax(clip("a", 60_000))
+        val result = TimelineMath.trimToMax(clip("a", 600_000))
         assertEquals(0L, result.trimStartMs)
         assertEquals(MAX_DURATION_MS, result.trimEndMs)
         assertEquals(MAX_DURATION_MS, result.trimmedDurationMs)
+    }
+
+    @Test
+    fun trimToMaxLeavesClipsUnderFiveMinutesUntouched() {
+        val result = TimelineMath.trimToMax(clip("a", 60_000))
+        assertEquals(0L, result.trimStartMs)
+        assertEquals(60_000L, result.trimEndMs)
+        assertEquals(60_000L, result.trimmedDurationMs)
     }
 
     @Test
@@ -73,17 +81,17 @@ class TimelineMathTest {
 
     @Test
     fun trimToMaxConvertsBudgetToSourceWithSlowSpeed() {
-        val slow = clip("a", 120_000).copy(playbackSpeed = 0.5f)
+        val slow = clip("a", 600_000).copy(playbackSpeed = 0.5f)
         val result = TimelineMath.trimToMax(slow, MAX_DURATION_MS)
-        assertEquals(15_000L, result.trimmedDurationMs)
+        assertEquals(150_000L, result.trimmedDurationMs)
         assertEquals(MAX_DURATION_MS, result.effectiveDurationMs)
     }
 
     @Test
     fun trimToMaxAllowsMoreSourceWithFastSpeed() {
-        val fast = clip("a", 200_000).copy(playbackSpeed = 4f)
+        val fast = clip("a", 2_000_000).copy(playbackSpeed = 4f)
         val result = TimelineMath.trimToMax(fast, MAX_DURATION_MS)
-        assertEquals(120_000L, result.trimmedDurationMs)
+        assertEquals(1_200_000L, result.trimmedDurationMs)
         assertEquals(MAX_DURATION_MS, result.effectiveDurationMs)
     }
 
@@ -117,5 +125,32 @@ class TimelineMathTest {
             musicEnabled = false,
         )
         assertNull(TimelineMath.musicWindowMs(project))
+    }
+
+    @Test
+    fun clipsLargosSumanDuracionCompletaMasAllaDeCincoMinutos() {
+        val clips = listOf(clip("a", 420_000L), clip("b", 180_000L))
+        assertEquals(600_000L, TimelineMath.totalDuration(clips))
+    }
+
+    @Test
+    fun clampTrimSoportaClipsExtensosDeDiezMinutos() {
+        val clipDiezMin = clip("a", 600_000L)
+        val recortado = TimelineMath.clampTrim(clipDiezMin, 60_000L, 540_000L)
+        assertEquals(60_000L, recortado.trimStartMs)
+        assertEquals(540_000L, recortado.trimEndMs)
+        assertEquals(480_000L, recortado.trimmedDurationMs)
+    }
+
+    @Test
+    fun musicaCubreTimelineExtensoDeOchoMinutos() {
+        val project = Project(
+            clips = listOf(clip("a", 480_000L)),
+            music = MusicTrack(1L, "x", "t", "a", 600_000L),
+            musicEnabled = true,
+            musicStartMs = 0L,
+        )
+        assertEquals(0L to 480_000L, TimelineMath.musicWindowMs(project))
+        assertFalse(TimelineMath.musicShouldLoop(project))
     }
 }

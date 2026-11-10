@@ -25,6 +25,24 @@ object ShareUtils {
         )
     }
 
+    fun shareImage(context: Context, file: File) {
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, "Compartir fotograma").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+    }
+
     fun shareText(context: Context, text: String, title: String = "Compartir esquema JSON") {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"

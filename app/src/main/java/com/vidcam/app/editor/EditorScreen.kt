@@ -181,6 +181,7 @@ fun EditorScreen(
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
+    val lastImageExport by viewModel.lastImageExport.collectAsStateWithLifecycle()
     val motionRecording by viewModel.motionRecording.collectAsStateWithLifecycle()
     val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
     val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
@@ -255,13 +256,13 @@ fun EditorScreen(
             return
         }
         // La grabación se detiene sola en la duración fijada de antemano, sin
-        // pasarse nunca de lo que queda libre del proyecto de 30 s.
+        // pasarse nunca de lo que queda libre del proyecto de 5 min.
         val limitMs = TimelineMath.recordingLimitMs(
             targetMs = project.targetDurationMs,
             usedMs = project.totalDurationMs,
         )
         if (limitMs <= 0L) {
-            scope.launch { snackbarHostState.showSnackbar("Límite de 30 s alcanzado") }
+            scope.launch { snackbarHostState.showSnackbar("Límite de 5 min alcanzado") }
             return
         }
         val file = File(MediaProbe.capturesDir(context), "rec-${System.currentTimeMillis()}.mp4")
@@ -356,8 +357,11 @@ fun EditorScreen(
                             )
                         }
                     }
-                    if (lastExport != null) {
-                        IconButton(onClick = viewModel::shareLastExport) {
+                    if (lastExport != null || lastImageExport != null) {
+                        IconButton(onClick = {
+                            if (lastExport != null) viewModel.shareLastExport()
+                            else viewModel.shareLastImageExport()
+                        }) {
                             Icon(Icons.Default.Share, contentDescription = "Compartir")
                         }
                     }
@@ -727,6 +731,10 @@ fun EditorScreen(
             onConfirmExport = {
                 showExportPreviewDialog = false
                 viewModel.export()
+            },
+            onExportFramePng = { timeMs ->
+                showExportPreviewDialog = false
+                viewModel.exportFramePng(timeMs)
             },
             onDismiss = { showExportPreviewDialog = false },
         )
@@ -1101,11 +1109,16 @@ private fun ControlsSection(
                 Text("Duración", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.width(8.dp))
                 TARGET_DURATIONS_MS.forEach { durationMs ->
+                    val labelText = if (durationMs >= 60_000L && durationMs % 60_000L == 0L) {
+                        "${durationMs / 60_000L} min"
+                    } else {
+                        "${durationMs / 1000} s"
+                    }
                     FilterChip(
                         selected = project.targetDurationMs == durationMs,
                         onClick = { onSelectTargetDuration(durationMs) },
                         enabled = !recording,
-                        label = { Text("${durationMs / 1000} s") },
+                        label = { Text(labelText) },
                         modifier = Modifier.padding(end = 4.dp),
                     )
                 }
@@ -3182,6 +3195,7 @@ private fun LayerEditDialog(
 private fun ExportPreviewDialog(
     project: Project,
     onConfirmExport: () -> Unit,
+    onExportFramePng: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -3392,8 +3406,13 @@ private fun ExportPreviewDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onConfirmExport) {
-                Text("Exportar ahora")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onExportFramePng(previewTimeMs) }) {
+                    Text("Fotograma PNG")
+                }
+                Button(onClick = onConfirmExport) {
+                    Text("Vídeo MP4")
+                }
             }
         },
         dismissButton = {

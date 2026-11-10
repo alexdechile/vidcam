@@ -12,6 +12,8 @@ local.properties
 *.keystore
 /app/release
 release-artifacts/
+build-artifacts/
 artifacts/
+build-artifacts/
 
 .kotlin/

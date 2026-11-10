@@ -250,7 +250,7 @@ object SchemeTiming {
         description: String = "",
         stagesCount: Int = 5,
     ): UsageScheme {
-        val totalMs = project.outputDurationMs.coerceIn(1_000L, 30_000L)
+        val totalMs = project.outputDurationMs.coerceIn(1_000L, maxOf(MAX_DURATION_MS, project.outputDurationMs))
         val totalSec = kotlin.math.max(1, kotlin.math.round(totalMs / 1000.0).toInt())
         val count = stagesCount.coerceAtLeast(1)
 

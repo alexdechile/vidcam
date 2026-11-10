@@ -42,18 +42,18 @@ class TargetDurationTest {
         )
         assertEquals(
             MAX_DURATION_MS,
-            Project(targetDurationMs = 120_000L).outputDurationMs,
+            Project(targetDurationMs = 600_000L).outputDurationMs,
         )
     }
 
     @Test
     fun `la grabacion se corta en la duracion fijada`() {
         assertEquals(10_000L, TimelineMath.recordingLimitMs(10_000L, 0L))
-        // Ya hay 25 s grabados: solo caben 5 s del proyecto de 30 s.
-        assertEquals(5_000L, TimelineMath.recordingLimitMs(10_000L, 25_000L))
+        // Ya hay 295 s grabados: solo caben 5 s del proyecto de 5 min (300 s).
+        assertEquals(5_000L, TimelineMath.recordingLimitMs(10_000L, 295_000L))
         // Sin espacio, no se graba.
-        assertEquals(0L, TimelineMath.recordingLimitMs(10_000L, 30_000L))
-        assertEquals(0L, TimelineMath.recordingLimitMs(10_000L, 31_000L))
+        assertEquals(0L, TimelineMath.recordingLimitMs(10_000L, 300_000L))
+        assertEquals(0L, TimelineMath.recordingLimitMs(10_000L, 301_000L))
     }
 
     @Test

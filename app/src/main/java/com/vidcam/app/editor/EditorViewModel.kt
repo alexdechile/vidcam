@@ -19,6 +19,7 @@ import com.vidcam.app.data.TranscriptionClient
 import com.vidcam.app.data.TranscriptionResult
 import com.vidcam.app.data.TranscriptionSettings
 import com.vidcam.app.data.TranscriptionSettingsStore
+import com.vidcam.app.export.FrameExporter
 import com.vidcam.app.export.GallerySaver
 import com.vidcam.app.export.ShareUtils
 import com.vidcam.app.export.VideoExporter
@@ -89,6 +90,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _lastExport = MutableStateFlow<File?>(null)
     val lastExport: StateFlow<File?> = _lastExport.asStateFlow()
+
+    private val _lastImageExport = MutableStateFlow<File?>(null)
+    val lastImageExport: StateFlow<File?> = _lastImageExport.asStateFlow()
 
     private val _motionRecording = MutableStateFlow(false)
     val motionRecording: StateFlow<Boolean> = _motionRecording.asStateFlow()
@@ -429,7 +433,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             _message.value = "No se pudo leer el vídeo importado"
             return false
         }
-        return addClip(Uri.fromFile(stored).toString(), duration)
+        return addClip(Uri.fromFile(stored).toString(), duration, isImported = true)
     }
 
     private fun addClip(
@@ -439,10 +443,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         colorFilter: ColorFilterPreset = ColorFilterPreset.NINGUNO,
         wideLens: WideLensMode = WideLensMode.NORMAL,
         shake: ShakeIntensity = ShakeIntensity.NINGUNO,
+        isImported: Boolean = false,
     ): Boolean {
         val remaining = MAX_DURATION_MS - _project.value.totalDurationMs
-        if (remaining <= 0L) {
-            _message.value = "Límite de 30 s alcanzado"
+        if (!isImported && remaining <= 0L) {
+            _message.value = "Límite de 5 min alcanzado"
             return false
         }
         val clip = VideoClip(
@@ -454,7 +459,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             wideLens = wideLens,
             shake = shake,
         )
-        val trimmed = TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
+        val trimmed = if (isImported) {
+            clip
+        } else {
+            TimelineMath.trimToMax(clip, minOf(remaining, MAX_DURATION_MS))
+        }
         update { it.copy(clips = it.clips + trimmed) }
         return true
     }
@@ -464,7 +473,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Cambia la velocidad de reproducción (cámara lenta/rápida). Si la duración
-     * efectiva resultante supera el presupuesto restante de 30 s, el clip se
+     * efectiva resultante supera el presupuesto restante, el clip se
      * recorta por el final; si no cabe ni un fotograma, no se aplica.
      */
     fun setClipSpeed(id: String, speed: Float) {
@@ -472,12 +481,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val clip = project.clips.firstOrNull { it.id == id } ?: return
         if (speed <= 0f || speed == clip.playbackSpeed) return
         val others = project.clips.filterNot { it.id == id }.sumOf { it.effectiveDurationMs }
-        val maxTimeline = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        val timelineCeiling = maxOf(MAX_DURATION_MS, others + (clip.sourceDurationMs / speed).toLong())
+        val maxTimeline = (timelineCeiling - others).coerceAtLeast(0L)
         val candidate = clip.copy(playbackSpeed = speed)
         val fitted = if (candidate.effectiveDurationMs <= maxTimeline) {
             candidate
         } else if (maxTimeline <= 0L) {
-            _message.value = "Límite de 30 s alcanzado"
+            _message.value = "Límite de 5 min alcanzado"
             return
         } else {
             val maxSource = (maxTimeline * speed).toLong()
@@ -516,7 +526,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun updateTrim(id: String, startMs: Long, endMs: Long) = update("trim:$id") { project ->
         val clip = project.clips.firstOrNull { it.id == id } ?: return@update project
         val others = project.clips.filterNot { it.id == id }.sumOf { it.effectiveDurationMs }
-        val maxTimeline = (MAX_DURATION_MS - others).coerceAtLeast(0L)
+        val timelineCeiling = maxOf(MAX_DURATION_MS, others + (clip.sourceDurationMs / clip.playbackSpeed.coerceAtLeast(0.01f)).toLong())
+        val maxTimeline = (timelineCeiling - others).coerceAtLeast(0L)
         val maxForClip = (maxTimeline * clip.playbackSpeed.coerceAtLeast(0.01f)).toLong()
         project.copy(
             clips = project.clips.map { thisClip ->
@@ -1526,6 +1537,48 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         exporter.cancel()
         _exporting.value = false
         _message.value = "Exportación cancelada"
+    }
+
+    fun exportFramePng(timeMs: Long = 0L) {
+        if (_exporting.value) return
+        val currentProject = _project.value
+        if (!currentProject.canExport) {
+            _message.value = "No hay contenido para exportar"
+            return
+        }
+        _exporting.value = true
+        _progress.value = 50
+        viewModelScope.launch {
+            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val pngFile = File(exportDir, "frame-${System.currentTimeMillis()}.png")
+            val success = withContext(Dispatchers.IO) {
+                FrameExporter.exportPng(context, currentProject, timeMs, pngFile)
+            }
+            if (success) {
+                val savedUri = withContext(Dispatchers.IO) {
+                    GallerySaver.saveImageToGallery(context, pngFile)
+                }
+                _lastImageExport.value = pngFile
+                _exporting.value = false
+                _progress.value = 100
+                _message.value = if (savedUri != null) {
+                    if (GallerySaver.openInGallery(context, savedUri, "image/png")) {
+                        "Fotograma PNG guardado y abierto en la galería"
+                    } else {
+                        "Fotograma PNG guardado en la galería"
+                    }
+                } else {
+                    "Fotograma PNG exportado"
+                }
+            } else {
+                _exporting.value = false
+                _message.value = "Error al exportar el fotograma PNG"
+            }
+        }
+    }
+
+    fun shareLastImageExport() {
+        _lastImageExport.value?.let { ShareUtils.shareImage(context, it) }
     }
 
     fun shareLastExport() {

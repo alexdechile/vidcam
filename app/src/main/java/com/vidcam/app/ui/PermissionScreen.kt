@@ -36,7 +36,7 @@ fun PermissionScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                text = "Vídeos verticales de hasta 30 segundos",
+                text = "Vídeos verticales de hasta 5 minutos y clips importados",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp),
             )

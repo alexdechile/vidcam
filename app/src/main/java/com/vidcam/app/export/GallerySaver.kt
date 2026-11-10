@@ -50,13 +50,51 @@ object GallerySaver {
         return uri
     }
 
+    /** Copia la imagen PNG exportada a la galería de fotos del dispositivo. */
+    fun saveImageToGallery(context: Context, file: File): Uri? {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, file.name)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Images.Media.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_PICTURES}/VidCam",
+                )
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val uri = try {
+            context.contentResolver.insert(collection, values)
+        } catch (e: Exception) {
+            null
+        } ?: return null
+
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                file.inputStream().use { input -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            context.contentResolver.delete(uri, null, null)
+            return null
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val clear = ContentValues().apply {
+                put(MediaStore.Images.Media.IS_PENDING, 0)
+            }
+            context.contentResolver.update(uri, clear, null, null)
+        }
+        return uri
+    }
+
     /**
-     * Abre el vídeo ya guardado en el visor de la galería del dispositivo.
+     * Abre el archivo multimedia ya guardado en el visor de la galería del dispositivo.
      * Devuelve `true` si alguna aplicación pudo manejarlo.
      */
-    fun openInGallery(context: Context, uri: Uri): Boolean {
+    fun openInGallery(context: Context, uri: Uri, mimeType: String = "video/mp4"): Boolean {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "video/mp4")
+            setDataAndType(uri, mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

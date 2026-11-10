@@ -1,12 +1,12 @@
 # VidCam
 
-Aplicación Android para grabar y editar vídeos verticales de hasta 30 segundos:
+Aplicación Android para grabar y editar vídeos verticales de hasta 5 minutos (o la duración íntegra de clips importados):
 cámara con audio, importación de clips, biblioteca de música del dispositivo,
 capas PNG transparentes y textos con Google Fonts arrastrables, escalables,
 rotables y animables con grabación de movimiento en el lienzo, fondos PNG a
 pantalla completa por tramos con efecto Ken Burns de zoom, ventana de vídeo móvil y girable con forma 1:1 o
 9:16, deshacer/rehacer y proyectos guardados en JSON, con exportación a MP4
-(H.264/AAC) con guardado en galería y hoja de compartir, recepción de vídeos,
+(H.264/AAC) y de fotogramas compuestos PNG en alta calidad con guardado en galería y hoja de compartir, recepción de vídeos,
 imágenes y música compartidos desde otras apps, capas GIF animadas, vídeos
 hechos solo con imágenes, voz en off (doblaje) con aislación de entorno y
 volumen por pista, subtítulos quemados con transcripción y mezcla con fundidos

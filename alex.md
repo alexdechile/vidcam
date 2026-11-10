@@ -2,6 +2,20 @@
 
 ## Último Realizado
 
+- **2026-11-09**: Límite de duración extendido a 5 minutos, clips importados íntegros y exportación de fotograma PNG en alta calidad (change OpenSpec `extend-duration-limit`):
+  1. **Límite base a 5 minutos (`MAX_DURATION_MS = 300_000L`)**:
+     - Se elevó la constante global de 30 s a 300 s (5 minutos) para grabaciones de cámara, proyectos de imágenes fijas y presupuesto del timeline.
+     - Selector de duración (`TARGET_DURATIONS_MS`) ampliado con opciones legibles de `1 min` y `5 min` (`5 s`, `10 s`, `15 s`, `30 s`, `1 min`, `5 min`).
+  2. **Vídeos importados y compartidos con duración íntegra**:
+     - En `EditorViewModel.addClip`, parámetro `isImported = true` que omite el recorte forzoso para vídeos de la galería o compartidos vía Intent, permitiendo alojar clips largos con su `sourceDurationMs` completo.
+     - `updateTrim` y `setClipSpeed` usan presupuesto elástico (`maxOf(MAX_DURATION_MS, others + clipDuration)`) para navegar y editar metrajes largos sin recortarlos artificialmente.
+  3. **Exportación de fotograma PNG de máxima calidad (`FrameExporter`)**:
+     - Renderizador que compone fondo, ventana de vídeo con filtro de color, capas (PNG/GIF/texto) con transformaciones y subtítulos quemados sobre lienzo `ARGB_8888` a resolución completa (1080x1920).
+     - Guardado sin pérdida (`Bitmap.CompressFormat.PNG, 100`) en `Pictures/VidCam` vía `GallerySaver.saveImageToGallery` y soporte para compartir (`ShareUtils.shareImage`).
+     - Botón "Fotograma PNG" incorporado en `ExportPreviewDialog` junto a la exportación de "Vídeo MP4".
+  4. **Pruebas y avisos**:
+     - Actualizados los avisos del editor a "Límite de 5 min alcanzado" y suites de pruebas unitarias en `TargetDurationTest` y `TimelineMathTest`.
+
 - **2026-11-09**: Doblaje automático y generador de murmullo multi-voz (change OpenSpec `add-voice-doubler-and-murmur`):
   1. **Modelo de datos y presets (`VoiceDoublerConfig` y `VoiceDoublerPreset`)**: modos de 1 toque (`Normal/Desactivado`, `Doble Grave` a -12 semitonos para voz cinematográfica, `Doble Agudo` a +12 semitonos, `Estudio ADT` con micro-delay y micro-detune, `Murmullo` con 4 capas desfasadas para efecto multitud/cuchicheo, y `Personalizado`) con persistencia JSON retrocompatible en `VoiceoverTrack`.
   2. **Motor DSP granular en Kotlin (`VoicePitchShifter` y `VoiceDoublerEngine`)**: modulación tonal (-12 a +12 semitonos) y cents sin distorsión de fase ni clics mediante doble retardo cruzado OLA, retardo temporal escalonado (10..80 ms), mezcla ponderada y compresión/normalización suave anti-clipping (-1 dBFS).
@@ -116,9 +130,9 @@
 
 ## ¿Qué hace esta App?
 
-**VidCam** es una aplicación Android orientada a la creación y edición rápida de vídeos verticales (≤ 30 s) con exportación MP4 (H.264/AAC):
+**VidCam** es una aplicación Android orientada a la creación y edición rápida de vídeos verticales (≤ 5 min o la duración íntegra de clips importados) con exportación MP4 (H.264/AAC) y fotogramas PNG en alta calidad:
 - Grabación de cámara con audio, cambio de cámara y estabilizador.
-- Importación de clips de vídeo y ajuste de velocidad por clip.
+- Importación de clips de vídeo con duración completa y ajuste de velocidad por clip.
 - Biblioteca de música del dispositivo y efectos (p. ej. Shake/temblor).
 - Capas interactivas: PNG transparente y textos con Google Fonts, manipulables mediante gestos (arrastrar, escalar, rotar) y grabación de movimiento en el lienzo (animación de posición en tiempo real).
 - Fondos PNG a pantalla completa por tramos de tiempo, con efecto Ken Burns de
@@ -126,7 +140,7 @@
   duración del vídeo.
 - Ventana de vídeo configurable (aspecto 1:1 o 9:16), arrastrable, escalable y girable sobre el fondo.
 - Persistencia de proyectos en formato JSON y soporte para Deshacer/Rehacer (Undo/Redo).
-- Exportación acelerada a MP4 (H.264/AAC), guardado directo en galería y diálogo nativo para compartir.
+- Exportación acelerada a MP4 (H.264/AAC), exportación de fotogramas compuestos PNG en alta definición, guardado directo en galería y diálogo nativo para compartir.
 
 ## Stack Técnico
 
