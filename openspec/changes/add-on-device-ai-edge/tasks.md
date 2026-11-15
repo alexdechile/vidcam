@@ -2,7 +2,7 @@
 
 ## 1. Dependencias y configuración Gradle
 
-- [ ] 1.1 Agregar `com.google.mediapipe:tasks-genai` en `gradle/libs.versions.toml` y `app/build.gradle.kts`, verificando que la sincronización Gradle resuelva la dependencia sin conflictos con `compileSdk = 35` y `minSdk = 26`.
+- [x] 1.1 Agregar `com.google.mediapipe:tasks-genai` en `gradle/libs.versions.toml` y `app/build.gradle.kts`, verificando que la sincronización Gradle resuelva la dependencia sin conflictos con `compileSdk = 35` y `minSdk = 26`.
 
 ## 2. Gestor de modelos locales y motor de inferencia
 
@@ -16,5 +16,5 @@
 
 ## 4. Verificación en la nube y documentación
 
-- [ ] 4.1 Ejecutar build y tests unitarios en GitHub Actions (`gh run watch`) verificando que la APK `arm64-v8a` compile y las pruebas pasen sin regresiones.
+- [x] 4.1 Ejecutar build y tests unitarios en GitHub Actions (`gh run watch`) verificando que la APK `arm64-v8a` compile y las pruebas pasen sin regresiones.
 - [x] 4.2 Actualizar `alex.md` de VidCam documentando la integración de Google AI Edge on-device y cómo cargar un archivo `.task`/`.litertlm` en el dispositivo.
