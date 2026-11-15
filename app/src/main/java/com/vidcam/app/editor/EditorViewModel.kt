@@ -5,9 +5,11 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.vidcam.app.ai.OnDeviceAiEngine
 import com.vidcam.app.audio.VoiceoverProcessor
 import com.vidcam.app.audio.VoiceoverRecorder
 import com.vidcam.app.audio.WavFile
+import com.vidcam.app.data.LocalAiModelStore
 import com.vidcam.app.data.ProjectStore
 import com.vidcam.app.data.SavedProject
 import com.vidcam.app.data.SavedScheme
@@ -73,6 +75,17 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class OnDeviceAiUiState(
+    val activeModelName: String? = null,
+    val activeModelPath: String? = null,
+    val activeModelSizeBytes: Long = 0L,
+    val isModelLoadedInMemory: Boolean = false,
+    val isLoading: Boolean = false,
+    val isGenerating: Boolean = false,
+    val generatedText: String = "",
+    val error: String? = null,
+)
 
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -141,6 +154,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val exporter = VideoExporter(application)
     private val projectStore = ProjectStore(File(application.filesDir, "projects"))
     private val schemeStore = SchemeStore(File(application.filesDir, "templates"))
+    private val aiModelStore = LocalAiModelStore(application)
+    private val aiEngine = OnDeviceAiEngine(application)
+    private val _aiState = MutableStateFlow(OnDeviceAiUiState())
+    val aiState: StateFlow<OnDeviceAiUiState> = _aiState.asStateFlow()
     private val history = UndoHistory()
 
     /** Última versión que coincide con lo guardado en disco, para calcular `dirty`. */
@@ -152,6 +169,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     init {
         refreshSavedProjects()
         refreshSavedSchemes()
+        refreshAiModelState()
     }
 
     fun consumeMessage() {
@@ -1532,10 +1550,107 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    // --- Asistente IA offline (Google AI Edge) -------------------------------
+
+    private fun refreshAiModelState() {
+        val active = aiModelStore.activeModel()
+        _aiState.value = _aiState.value.copy(
+            activeModelName = active?.name,
+            activeModelPath = active?.path,
+            activeModelSizeBytes = active?.sizeBytes ?: 0L,
+            isModelLoadedInMemory = aiEngine.isLoaded.value,
+        )
+    }
+
+    fun selectAiModelUri(uri: Uri) {
+        if (_aiState.value.isLoading || _aiState.value.isGenerating) return
+        _aiState.value = _aiState.value.copy(isLoading = true, error = null)
+        viewModelScope.launch {
+            aiEngine.release()
+            val result = withContext(Dispatchers.IO) {
+                aiModelStore.importFromUri(context, uri)
+            }
+            result.fold(
+                onSuccess = { model ->
+                    _aiState.value = _aiState.value.copy(
+                        activeModelName = model.name,
+                        activeModelPath = model.path,
+                        activeModelSizeBytes = model.sizeBytes,
+                        isModelLoadedInMemory = false,
+                        isLoading = false,
+                        error = null,
+                    )
+                    _message.value = "Modelo IA listo: ${model.name}"
+                },
+                onFailure = { err ->
+                    _aiState.value = _aiState.value.copy(
+                        isLoading = false,
+                        isModelLoadedInMemory = false,
+                        error = err.message ?: "No se pudo importar el modelo",
+                    )
+                },
+            )
+        }
+    }
+
+    fun generateText(prompt: String) {
+        val modelPath = _aiState.value.activeModelPath
+        if (modelPath == null) {
+            _aiState.value = _aiState.value.copy(
+                error = "Selecciona primero un modelo .task o .litertlm",
+            )
+            return
+        }
+        if (prompt.isBlank()) {
+            _aiState.value = _aiState.value.copy(error = "Escribe una instrucción")
+            return
+        }
+        if (_aiState.value.isLoading || _aiState.value.isGenerating) return
+        _aiState.value = _aiState.value.copy(isGenerating = true, error = null)
+        viewModelScope.launch {
+            val result = aiEngine.generate(modelPath, prompt)
+            result.fold(
+                onSuccess = { text ->
+                    _aiState.value = _aiState.value.copy(
+                        isGenerating = false,
+                        isModelLoadedInMemory = aiEngine.isLoaded.value,
+                        generatedText = text,
+                        error = null,
+                    )
+                },
+                onFailure = { err ->
+                    _aiState.value = _aiState.value.copy(
+                        isGenerating = false,
+                        isModelLoadedInMemory = aiEngine.isLoaded.value,
+                        error = err.message ?: "Error al generar texto",
+                    )
+                },
+            )
+        }
+    }
+
+    fun clearAiModel() {
+        viewModelScope.launch {
+            aiEngine.release()
+            withContext(Dispatchers.IO) {
+                aiModelStore.clearActiveModel()
+            }
+            _aiState.value = OnDeviceAiUiState()
+        }
+    }
+
+    fun releaseAiEngine() {
+        viewModelScope.launch {
+            aiEngine.release()
+            _aiState.value = _aiState.value.copy(isModelLoadedInMemory = false)
+        }
+    }
+
     // --- Exportación -------------------------------------------------------
 
     fun export() {
         if (_exporting.value) return
+        releaseAiEngine()
         _exporting.value = true
         _progress.value = 0
         exporter.export(
@@ -1585,6 +1700,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             _message.value = "No hay contenido para exportar"
             return
         }
+        releaseAiEngine()
         _exporting.value = true
         _progress.value = 50
         viewModelScope.launch {
@@ -1628,5 +1744,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         super.onCleared()
         voiceRecorder.stop()
         exporter.cancel()
+        aiEngine.releaseNow()
     }
 }

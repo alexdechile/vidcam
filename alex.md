@@ -2,6 +2,20 @@
 
 ## Último Realizado
 
+- **2026-11-15**: Asistente de IA on-device 100% offline con Google AI Edge (`com.google.mediapipe:tasks-genai`, change OpenSpec `add-on-device-ai-edge`):
+  1. **Dependencia ligera sin pesos en la APK (`gradle/libs.versions.toml`, `app/build.gradle.kts`)**:
+     - Se integró `com.google.mediapipe:tasks-genai:0.10.35` manteniendo la APK liviana; los modelos `.task` o `.litertlm` se cargan externamente desde el almacenamiento del dispositivo.
+  2. **Gestor de modelos locales (`LocalAiModelStore`)**:
+     - Valida extensiones `.task` y `.litertlm`, copia el archivo seleccionado vía Storage Access Framework (`OpenDocument`) al almacenamiento interno privado (`filesDir/models/`), persiste la ruta activa y reemplaza modelos anteriores para evitar acumulación de gigabytes.
+  3. **Motor de inferencia bajo demanda (`OnDeviceAiEngine`)**:
+     - Envuelve `LlmInference` en `Dispatchers.IO` con carga perezosa al generar, protección de ABI (`arm64-v8a`) y captura segura de errores nativos, y `release()` para liberar RAM.
+  4. **Integración en editor y gestión de RAM (`EditorViewModel`, `OnDeviceAiSheet`, `EditorScreen`)**:
+     - Botón **"IA"** en la barra de herramientas del editor que abre `OnDeviceAiSheet` con estado vacío guiado, presets rápidos (*Titular corto*, *Guion voice-over*, *Gancho / subtítulo*), vista previa e inserción directa como capa de texto o copiado al portapapeles.
+     - Liberación automática del motor de IA (`releaseAiEngine()`) al cerrar la hoja del asistente, al destruir el ViewModel y antes de iniciar cualquier exportación MP4 o PNG.
+  5. **Cómo cargar un modelo en el teléfono**:
+     - Descarga o transfiere un modelo compatible Gemma en formato `.task` o `.litertlm` (por ejemplo desde Google AI Edge / Hugging Face LiteRT) a la carpeta `Descargas` del dispositivo `arm64-v8a`.
+     - En el editor de VidCam pulsa **IA** → **Seleccionar .task / .litertlm** y elige el archivo; quedará registrado localmente para usarlo sin conexión.
+
 - **2026-11-09**: Sincronización profesional de Voice Over: reproducción automática desde el inicio y pausa/reanudación bidireccional vídeo-voz:
   1. **Arranque sincronizado desde 0 ms**:
      - Al presionar *"Grabar"* o *"Regrabar"* en `VoiceoverSheet`, se dispara `voiceRestartSignal`, el reproductor de vídeo (`videoPlayer`) y el de música (`musicPlayer`) rebobinan a 0 y arrancan la reproducción de inmediato (`play()`).

@@ -195,6 +195,7 @@ fun EditorScreen(
     val voiceLevel by viewModel.voiceLevel.collectAsStateWithLifecycle()
     val voiceProcessing by viewModel.voiceProcessing.collectAsStateWithLifecycle()
     val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
+    val aiState by viewModel.aiState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -214,6 +215,7 @@ fun EditorScreen(
     var showVoiceSheet by remember { mutableStateOf(false) }
     var showCaptionsSheet by remember { mutableStateOf(false) }
     var showSchemesSheet by remember { mutableStateOf(false) }
+    var showAiSheet by remember { mutableStateOf(false) }
     var pendingSchemeBinding by remember { mutableStateOf<com.vidcam.app.model.scheme.SchemeBinding?>(null) }
     var voiceRestartSignal by remember { mutableStateOf(0) }
     var pendingOpen by remember { mutableStateOf<SavedProject?>(null) }
@@ -464,6 +466,8 @@ fun EditorScreen(
                     onCaptions = { showCaptionsSheet = true },
                     captionsEnabled = project.outputDurationMs > 0L,
                     captionCount = project.captions.size,
+                    onAiAssist = { showAiSheet = true },
+                    aiModelReady = aiState.activeModelName != null,
                     motionRecording = motionRecording,
                     onToggleMotion = { viewModel.setMotionRecording(!motionRecording) },
                     recordSpeed = recordSpeed,
@@ -541,6 +545,30 @@ fun EditorScreen(
             onStyle = viewModel::setCaptionStyle,
             loadSettings = viewModel::transcriptionSettings,
             onSaveSettings = viewModel::saveTranscriptionSettings,
+        )
+    }
+
+    if (showAiSheet) {
+        OnDeviceAiSheet(
+            aiState = aiState,
+            onSelectModelUri = viewModel::selectAiModelUri,
+            onClearModel = viewModel::clearAiModel,
+            onReleaseEngine = viewModel::releaseAiEngine,
+            onGenerate = viewModel::generateText,
+            onInsertAsTextLayer = { text ->
+                viewModel.addTextLayer(text, null)
+                showAiSheet = false
+                viewModel.releaseAiEngine()
+            },
+            onCopied = {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Texto copiado al portapapeles")
+                }
+            },
+            onDismiss = {
+                showAiSheet = false
+                viewModel.releaseAiEngine()
+            },
         )
     }
 
@@ -993,6 +1021,8 @@ private fun ControlsSection(
     onCaptions: () -> Unit,
     captionsEnabled: Boolean,
     captionCount: Int,
+    onAiAssist: () -> Unit,
+    aiModelReady: Boolean,
     motionRecording: Boolean,
     onToggleMotion: () -> Unit,
     recordSpeed: Float,
@@ -1085,6 +1115,10 @@ private fun ControlsSection(
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = onCaptions, enabled = captionsEnabled) {
                 Text(if (captionCount > 0) "Subs $captionCount" else "Subs")
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onAiAssist) {
+                Text(if (aiModelReady) "IA ✓" else "IA")
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
