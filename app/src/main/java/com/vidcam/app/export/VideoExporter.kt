@@ -2,8 +2,10 @@ package com.vidcam.app.export
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Effect
@@ -90,6 +92,7 @@ class VideoExporter(private val context: Context) {
 
     interface Callback {
         fun onProgress(percent: Int)
+        fun onLog(line: String) {}
         fun onSuccess(file: File)
         fun onError(message: String)
     }
@@ -133,38 +136,142 @@ class VideoExporter(private val context: Context) {
         }
 
         val token = generation
-        // Sin clips hace falta igualmente una imagen base que haga de vídeo,
-        // aunque el proyecto no tenga fondos (se usa un lienzo negro).
-        if (project.clips.isNotEmpty() && !project.requiresVideoComposition) {
-            startExport(
-                project = project,
-                frameSize = FrameGeometry.frameSize(context, project),
-                prepared = null,
-                callback = callback,
-            )
-            return
-        }
+        val startElapsedMs = SystemClock.elapsedRealtime()
 
-        // Preparar los fondos implica decodificar imágenes: se hace fuera del
-        // hilo principal y se vuelve a él para arrancar el Transformer.
+        // La validación de archivos y la decodificación de fondos se hacen
+        // fuera del hilo principal para no trabar la pantalla y registrar cada paso.
         prepareExecutor.execute {
-            val prepared = prepareComposition(project, token)
+            val frameSize = FrameGeometry.frameSize(context, project)
+            ExportLog.summarizeProject(project, frameSize.first, frameSize.second)
+                .forEach { emitLog(callback, startElapsedMs, it) }
+
+            val clipError = verifyClips(project, callback, startElapsedMs)
+            if (clipError != null) {
+                postErrorIfCurrent(token, callback, clipError)
+                return@execute
+            }
+
+            val musicError = verifyMusic(project, callback, startElapsedMs)
+            if (musicError != null) {
+                postErrorIfCurrent(token, callback, musicError)
+                return@execute
+            }
+
+            val needsBackdrops = project.clips.isEmpty() || project.requiresVideoComposition
+            val prepared = if (needsBackdrops) {
+                emitLog(callback, startElapsedMs, "Preparando fondos en PNG…")
+                prepareComposition(project, token, callback, startElapsedMs)
+            } else {
+                null
+            }
+
             mainHandler.post {
                 if (token != generation) {
                     prepared?.dir?.deleteRecursively()
                     return@post
                 }
-                if (prepared == null) {
+                if (needsBackdrops && prepared == null) {
+                    emitLog(callback, startElapsedMs, "FALLO: no se pudo decodificar un fondo")
                     callback.onError("No se pudo preparar una imagen de fondo")
                     return@post
                 }
                 startExport(
                     project = project,
-                    frameSize = FrameGeometry.frameSize(context, project),
+                    frameSize = frameSize,
                     prepared = prepared,
                     callback = callback,
+                    startElapsedMs = startElapsedMs,
                 )
             }
+        }
+    }
+
+    private fun postErrorIfCurrent(token: Int, callback: Callback, message: String) {
+        mainHandler.post {
+            if (token == generation) callback.onError(message)
+        }
+    }
+
+    private fun emitLog(callback: Callback, startElapsedMs: Long, message: String) {
+        val line = ExportLog.formatLine(SystemClock.elapsedRealtime() - startElapsedMs, message)
+        Log.i(TAG, line)
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            callback.onLog(line)
+        } else {
+            mainHandler.post { callback.onLog(line) }
+        }
+    }
+
+    private fun verifyClips(
+        project: Project,
+        callback: Callback,
+        startElapsedMs: Long,
+    ): String? {
+        for ((index, clip) in project.clips.withIndex()) {
+            val parsed = Uri.parse(clip.uri)
+            if (parsed.scheme == "file" || parsed.scheme == null) {
+                val path = parsed.path
+                val file = path?.let(::File)
+                if (file == null || !file.exists() || file.length() <= 0L) {
+                    emitLog(
+                        callback,
+                        startElapsedMs,
+                        "FALLO: clip #${index + 1} no encontrado (${clip.uri})",
+                    )
+                    return "No se encontró el archivo del clip #${index + 1}"
+                }
+            }
+            emitLog(
+                callback,
+                startElapsedMs,
+                "Clip #${index + 1}: ${clip.trimStartMs}..${clip.trimEndMs} ms · " +
+                    "vel=${clip.playbackSpeed}x · filtro=${clip.colorFilter} · " +
+                    "lente=${clip.wideLens} · temblor=${clip.shake}",
+            )
+        }
+        return null
+    }
+
+    private fun verifyMusic(
+        project: Project,
+        callback: Callback,
+        startElapsedMs: Long,
+    ): String? {
+        val music = project.music ?: return null
+        val windowMs = TimelineMath.musicWindowMs(project) ?: return null
+        if (project.musicVolume <= 0f) return null
+        val uri = Uri.parse(music.uri)
+        return try {
+            val mime = context.contentResolver.getType(uri)
+            val ok = if (uri.scheme == "file" || uri.scheme == null) {
+                val file = uri.path?.let(::File)
+                file != null && file.exists() && file.length() > 0L
+            } else {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+            }
+            if (!ok) {
+                emitLog(
+                    callback,
+                    startElapsedMs,
+                    "FALLO: pista de música inaccesible (${music.uri})",
+                )
+                "No se puede leer la pista de música elegida"
+            } else {
+                emitLog(
+                    callback,
+                    startElapsedMs,
+                    "Música lista: \"${music.title}\" (${windowMs.first}..${windowMs.second} ms, " +
+                        "bucle=${TimelineMath.musicShouldLoop(project)}, tipo=${mime ?: "local"})",
+                )
+                null
+            }
+        } catch (e: Exception) {
+            emitLog(
+                callback,
+                startElapsedMs,
+                "FALLO: error al abrir música (${e.javaClass.simpleName}: ${e.message})",
+            )
+            "No se puede leer la pista de música elegida"
         }
     }
 
@@ -173,6 +280,7 @@ class VideoExporter(private val context: Context) {
         frameSize: Pair<Int, Int>,
         prepared: PreparedComposition?,
         callback: Callback,
+        startElapsedMs: Long,
     ) {
         val (videoWidth, videoHeight) = frameSize
         tempDir = prepared?.dir
@@ -184,6 +292,17 @@ class VideoExporter(private val context: Context) {
         // calcular la envolvente del ducking de la música.
         val voiceAudio = readVoiceAudio(project)
         val ducking = buildDucking(project, voiceAudio)
+        if (project.voiceover?.isUsable == true) {
+            emitLog(
+                callback,
+                startElapsedMs,
+                if (voiceAudio != null) {
+                    "Voz en off cargada: ${voiceAudio.durationMs} ms @ ${voiceAudio.sampleRate} Hz"
+                } else {
+                    "Aviso: no se pudo leer el archivo de voz en off"
+                },
+            )
+        }
 
         val sequences = buildSequences(
             project = project,
@@ -194,7 +313,13 @@ class VideoExporter(private val context: Context) {
             voiceAudio = voiceAudio,
             ducking = ducking,
         )
+        emitLog(callback, startElapsedMs, "Secuencias armadas para Media3: ${sequences.size}")
         val compositionBuilder = Composition.Builder(sequences)
+        if (project.clips.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Evita fallos al mezclar clips HDR del teléfono con fondos o capas SDR.
+            compositionBuilder.setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+            emitLog(callback, startElapsedMs, "Modo de color: conversión HDR→SDR por OpenGL")
+        }
 
         if (prepared != null && project.clips.isNotEmpty()) {
             val settings = buildCompositorSettings(
@@ -203,19 +328,31 @@ class VideoExporter(private val context: Context) {
                 videoHeight = videoHeight,
             )
             compositionBuilder.setVideoCompositorSettings(settings)
+            emitLog(
+                callback,
+                startElapsedMs,
+                "Compositor de ventana: ${videoWidth}x$videoHeight · " +
+                    "escala=${project.videoWindow.scale} · aspecto=${project.videoWindow.aspect}",
+            )
         }
 
         // Ordenar capas por zIndex (menor primero = más abajo) para que
-            // la exportación coincida con la vista previa.
-            val sortedLayers = project.layers.sortedBy { it.zIndex }
-            val layerOverlays: List<TextureOverlay> = sortedLayers.mapNotNull {
-                LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
-            }
-            val overlays: List<TextureOverlay> =
-                layerOverlays + buildCaptionOverlays(project, videoWidth, videoHeight)
+        // la exportación coincida con la vista previa.
+        val sortedLayers = project.layers.sortedBy { it.zIndex }
+        val layerOverlays: List<TextureOverlay> = sortedLayers.mapNotNull {
+            LayerBitmaps.buildOverlay(context, it, videoWidth, videoHeight)
+        }
+        val captionOverlays = buildCaptionOverlays(project, videoWidth, videoHeight)
+        val overlays: List<TextureOverlay> = layerOverlays + captionOverlays
         if (overlays.isNotEmpty()) {
             val overlayEffect: Effect = OverlayEffect(overlays)
             compositionBuilder.setEffects(Effects(emptyList(), listOf(overlayEffect)))
+            emitLog(
+                callback,
+                startElapsedMs,
+                "Overlays listos: ${layerOverlays.size}/${project.layers.size} capa(s), " +
+                    "${captionOverlays.size} subtítulo(s)",
+            )
         }
         val composition = compositionBuilder.build()
 
@@ -225,6 +362,11 @@ class VideoExporter(private val context: Context) {
         val listener = object : Transformer.Listener {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                 stopPolling()
+                emitLog(
+                    callback,
+                    startElapsedMs,
+                    "MP4 generado (${output.length() / 1024} KB)",
+                )
                 callback.onSuccess(output)
             }
 
@@ -235,6 +377,22 @@ class VideoExporter(private val context: Context) {
             ) {
                 stopPolling()
                 Log.e(TAG, "Fallo al exportar", exportException)
+                emitLog(
+                    callback,
+                    startElapsedMs,
+                    "Error Media3 [${exportException.getErrorCodeName()}]: ${exportException.message}",
+                )
+                var depth = 1
+                var cause = exportException.cause
+                while (cause != null && depth <= 4) {
+                    emitLog(
+                        callback,
+                        startElapsedMs,
+                        "Causa $depth (${cause.javaClass.simpleName}): ${cause.message}",
+                    )
+                    cause = cause.cause
+                    depth++
+                }
                 callback.onError(describe(exportException))
             }
         }
@@ -248,11 +406,18 @@ class VideoExporter(private val context: Context) {
 
         val progressHolder = ProgressHolder()
         handler = mainHandler
+        var lastMilestone = -1
         val poller = object : Runnable {
             override fun run() {
                 if (transformer !== built) return
                 if (built.getProgress(progressHolder) == Transformer.PROGRESS_STATE_AVAILABLE) {
-                    callback.onProgress(progressHolder.progress)
+                    val p = progressHolder.progress
+                    callback.onProgress(p)
+                    val milestone = (p / 25) * 25
+                    if (milestone > lastMilestone && milestone in 0..100) {
+                        lastMilestone = milestone
+                        emitLog(callback, startElapsedMs, "Progreso de render: $p %")
+                    }
                 }
                 mainHandler.postDelayed(this, 200L)
             }
@@ -260,10 +425,16 @@ class VideoExporter(private val context: Context) {
         mainHandler.postDelayed(poller, 200L)
 
         try {
+            emitLog(callback, startElapsedMs, "Arrancando motor Media3 Transformer…")
             built.start(composition, output.absolutePath)
         } catch (e: Exception) {
             stopPolling()
             Log.e(TAG, "No se pudo iniciar la exportación", e)
+            emitLog(
+                callback,
+                startElapsedMs,
+                "Excepción al arrancar (${e.javaClass.simpleName}): ${e.message}",
+            )
             callback.onError(describe(e))
         }
     }
@@ -307,7 +478,12 @@ class VideoExporter(private val context: Context) {
      * Prepara en segundo plano los fondos y los tamaños de los clips. Devuelve
      * `null` si una imagen de fondo no se puede leer.
      */
-    private fun prepareComposition(project: Project, token: Int): PreparedComposition? {
+    private fun prepareComposition(
+        project: Project,
+        token: Int,
+        callback: Callback,
+        startElapsedMs: Long,
+    ): PreparedComposition? {
         val (width, height) = FrameGeometry.frameSize(context, project)
         val dir = File(context.cacheDir, "composition/${System.currentTimeMillis()}-$token")
             .apply { mkdirs() }
@@ -339,9 +515,20 @@ class VideoExporter(private val context: Context) {
                 )
             }
             if (file == null) {
+                emitLog(
+                    callback,
+                    startElapsedMs,
+                    "FALLO: no se pudo preparar tramo #$index (${background?.uri ?: "lienzo negro"})",
+                )
                 dir.deleteRecursively()
                 return null
             }
+            emitLog(
+                callback,
+                startElapsedMs,
+                "Fondo #$index: ${background?.label ?: "Negro"} (${segment.startMs}..${segment.endMs} ms, " +
+                    "kenBurns=${background?.kenBurns ?: KenBurnsMode.NINGUNO}, ${file.length() / 1024} KB)",
+            )
             backdrops += PreparedBackdrop(
                 file = file,
                 startMs = segment.startMs,
@@ -450,7 +637,8 @@ class VideoExporter(private val context: Context) {
                 .build()
             val speed = clip.playbackSpeed.coerceAtLeast(0.01f)
             val builder = EditedMediaItem.Builder(mediaItem)
-            if (project.originalAudioMuted || project.originalVolume <= 0f) {
+            val muteOriginal = project.originalAudioMuted || project.originalVolume <= 0f
+            if (muteOriginal) {
                 builder.setRemoveAudio(true)
             }
             val colorEffect = clip.colorFilter.media3Effect()
@@ -469,13 +657,13 @@ class VideoExporter(private val context: Context) {
             val shakeEffect = clip.shake.media3Transformation()
             // Volumen del audio original: se aplica como efecto de audio por
             // clip (Media3 no expone volumen por pista en la composición).
-            val originalGain = if (project.originalAudioMuted) 1f else project.originalVolume
+            val originalGain = if (muteOriginal) 1f else project.originalVolume
             // En Media3 1.5 la velocidad se pide con efectos: el par
             // audio/vídeo de createExperimentalSpeedChangingEffect mantiene
             // la sincronización; el filtro de color, la normalización de la
             // ventana y el encuadre ancho se componen como efectos de vídeo.
             val speedPair =
-                if (!project.originalAudioMuted && speed != 1f) {
+                if (!muteOriginal && speed != 1f) {
                     Effects.createExperimentalSpeedChangingEffect(ConstantSpeed(speed))
                 } else {
                     null
@@ -483,7 +671,7 @@ class VideoExporter(private val context: Context) {
             val videoEffects = buildList {
                 when {
                     speed == 1f -> Unit
-                    project.originalAudioMuted -> add(SpeedChangeEffect(speed))
+                    muteOriginal -> add(SpeedChangeEffect(speed))
                     else -> speedPair?.second?.let { add(it) }
                 }
                 colorEffect?.let { add(it) }
@@ -493,7 +681,7 @@ class VideoExporter(private val context: Context) {
             }
             val audioEffects = buildList {
                 speedPair?.first?.let { add(it) }
-                if (!project.originalAudioMuted && originalGain != 1f) {
+                if (!muteOriginal && originalGain != 1f) {
                     add(GainAudioProcessor(originalGain.coerceAtLeast(0.01f)))
                 }
             }
@@ -514,7 +702,14 @@ class VideoExporter(private val context: Context) {
         if (prepared != null) {
             val backdropItems = prepared.backdrops.map { backdrop ->
                 val durationMs = (backdrop.endMs - backdrop.startMs).coerceAtLeast(1L)
-                val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(backdrop.file)))
+                // Media3 requiere el tipo MIME y la duración de imagen en el
+                // MediaItem para que ImageAssetLoader no falle en versiones 1.5+.
+                val backdropMediaItem = MediaItem.Builder()
+                    .setUri(Uri.fromFile(backdrop.file))
+                    .setMimeType(MimeTypes.IMAGE_PNG)
+                    .setImageDurationMs(durationMs)
+                    .build()
+                val builder = EditedMediaItem.Builder(backdropMediaItem)
                     .setDurationUs(durationMs * 1000L)
                     .setFrameRate(30)
                     .setRemoveAudio(true)

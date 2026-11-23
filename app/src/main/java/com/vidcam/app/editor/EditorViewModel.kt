@@ -21,6 +21,7 @@ import com.vidcam.app.data.TranscriptionClient
 import com.vidcam.app.data.TranscriptionResult
 import com.vidcam.app.data.TranscriptionSettings
 import com.vidcam.app.data.TranscriptionSettingsStore
+import com.vidcam.app.export.ExportLog
 import com.vidcam.app.export.FrameExporter
 import com.vidcam.app.export.GallerySaver
 import com.vidcam.app.export.ShareUtils
@@ -98,6 +99,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _progress = MutableStateFlow(0)
     val progress: StateFlow<Int> = _progress.asStateFlow()
 
+    private val _exportLog = MutableStateFlow<List<String>>(emptyList())
+    val exportLog: StateFlow<List<String>> = _exportLog.asStateFlow()
+
+    private val _exportError = MutableStateFlow<String?>(null)
+    val exportError: StateFlow<String?> = _exportError.asStateFlow()
+
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
@@ -152,6 +159,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val transcriptionStore = TranscriptionSettingsStore(application)
     private var voiceStopJob: Job? = null
     private val exporter = VideoExporter(application)
+    private val exportLogFile = File(application.filesDir, "ultimo-export.log")
     private val projectStore = ProjectStore(File(application.filesDir, "projects"))
     private val schemeStore = SchemeStore(File(application.filesDir, "templates"))
     private val aiModelStore = LocalAiModelStore(application)
@@ -1653,6 +1661,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         releaseAiEngine()
         _exporting.value = true
         _progress.value = 0
+        _exportError.value = null
+        _exportLog.value = listOf("Iniciando exportación…")
+        persistExportLog()
         exporter.export(
             _project.value,
             object : VideoExporter.Callback {
@@ -1660,10 +1671,22 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     _progress.value = percent
                 }
 
+                override fun onLog(line: String) {
+                    appendExportLog(line)
+                }
+
                 override fun onSuccess(file: File) {
+                    appendExportLog("Copiando vídeo a la galería…")
                     viewModelScope.launch {
                         val saved = withContext(Dispatchers.IO) {
                             GallerySaver.saveToGallery(context, file)
+                        }
+                        if (saved != null) {
+                            appendExportLog("Guardado en galería: $saved")
+                        } else {
+                            appendExportLog(
+                                "Aviso: MP4 creado (${file.name}), pero falló copiarlo a la galería",
+                            )
                         }
                         _lastExport.value = file
                         _exporting.value = false
@@ -1674,23 +1697,45 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                                 "Vídeo guardado en la galería"
                             }
                         } else {
-                            "Vídeo exportado"
+                            "Vídeo exportado (usa Compartir si no aparece en galería)"
                         }
                     }
                 }
 
                 override fun onError(message: String) {
+                    appendExportLog("FALLO: $message")
                     _exporting.value = false
+                    _exportError.value = message
                     _message.value = message
                 }
             },
         )
     }
 
+    fun dismissExportError() {
+        _exportError.value = null
+    }
+
     fun cancelExport() {
         exporter.cancel()
+        appendExportLog("Exportación cancelada por el usuario")
         _exporting.value = false
+        _exportError.value = null
         _message.value = "Exportación cancelada"
+    }
+
+    private fun appendExportLog(line: String) {
+        val updated = (_exportLog.value + line).takeLast(ExportLog.MAX_LINES)
+        _exportLog.value = updated
+        persistExportLog(updated)
+    }
+
+    private fun persistExportLog(lines: List<String> = _exportLog.value) {
+        viewModelScope.launch(Dispatchers.IO) {
+            synchronized(exportLogFile) {
+                ExportLog.writeToFile(exportLogFile, lines)
+            }
+        }
     }
 
     fun exportFramePng(timeMs: Long = 0L) {

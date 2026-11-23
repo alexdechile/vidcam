@@ -5,6 +5,10 @@ on:
     branches: [ main, master ]
   pull_request:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -37,11 +41,24 @@ jobs:
       - name: Lint, unit tests, debug, release and androidTest build
         run: ./gradlew lint test assembleDebug assembleDebugAndroidTest assembleRelease --stacktrace
 
+      - name: Clean previous CI artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.workflow_run.id != $RUN_ID and (.name == \"unit-test-report\" or .name == \"lint-report\" or .name == \"vidcam-debug-apk\" or .name == \"vidcam-release-apk\")) | .id" \
+          | while read -r id; do
+              [ -n "$id" ] && gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" || true
+            done
+
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
+          retention-days: 2
           path: |
             app/build/reports/tests/testDebugUnitTest/**
             app/build/test-results/testDebugUnitTest/**
@@ -52,6 +69,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
+          retention-days: 2
           path: |
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.txt
@@ -62,12 +80,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vidcam-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 3
+          path: |
+            app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: vidcam-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          retention-days: 3
+          path: |
+            app/build/outputs/apk/release/*.apk
           if-no-files-found: error

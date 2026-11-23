@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -87,11 +88,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -179,6 +184,8 @@ fun EditorScreen(
     val project by viewModel.project.collectAsStateWithLifecycle()
     val exporting by viewModel.exporting.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val exportLog by viewModel.exportLog.collectAsStateWithLifecycle()
+    val exportError by viewModel.exportError.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
     val lastImageExport by viewModel.lastImageExport.collectAsStateWithLifecycle()
@@ -773,24 +780,14 @@ fun EditorScreen(
         )
     }
 
-    if (exporting) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Exportando") },
-            text = {
-                Column {
-                    LinearProgressIndicator(
-                        progress = { progress / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text("$progress %")
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = viewModel::cancelExport) { Text("Cancelar") }
-            },
+    if (exporting || exportError != null) {
+        ExportStatusDialog(
+            exporting = exporting,
+            progress = progress,
+            error = exportError,
+            logLines = exportLog,
+            onCancel = viewModel::cancelExport,
+            onDismissError = viewModel::dismissExportError,
         )
     }
 }
@@ -3490,6 +3487,150 @@ private fun ExportPreviewDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Volver a editar")
+            }
+        },
+    )
+}
+
+/**
+ * Diálogo de estado de la exportación con un cajón desplegable (estilo ventana
+ * de detalle en tiempo real) que muestra paso a paso qué hace el motor de
+ * vídeo y permite copiar el registro completo si ocurre un fallo.
+ */
+@Composable
+private fun ExportStatusDialog(
+    exporting: Boolean,
+    progress: Int,
+    error: String?,
+    logLines: List<String>,
+    onCancel: () -> Unit,
+    onDismissError: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    var expanded by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+    val logScrollState = rememberScrollState()
+
+    LaunchedEffect(error) {
+        if (error != null) {
+            expanded = true
+            copied = false
+        }
+    }
+
+    LaunchedEffect(logLines.size, expanded) {
+        if (expanded) {
+            logScrollState.scrollTo(logScrollState.maxValue)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!exporting && error != null) onDismissError()
+        },
+        title = {
+            Text(if (error != null) "Error al exportar" else "Exportando")
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        progress = { progress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("$progress %")
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = if (expanded) {
+                            "Ocultar detalle (${logLines.size})"
+                        } else {
+                            "Ver detalle (${logLines.size})"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Icon(
+                        imageVector = if (expanded) {
+                            Icons.Default.KeyboardArrowUp
+                        } else {
+                            Icons.Default.KeyboardArrowDown
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                if (expanded) {
+                    Surface(
+                        color = Color(0xFF14161A),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 96.dp, max = 220.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(logScrollState)
+                                .padding(10.dp),
+                        ) {
+                            val content = if (logLines.isEmpty()) {
+                                "Sin eventos todavía…"
+                            } else {
+                                logLines.joinToString("\n")
+                            }
+                            Text(
+                                text = content,
+                                color = Color(0xFFE2E6ED),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (error != null) {
+                Button(
+                    onClick = {
+                        val payload = buildString {
+                            appendLine("Error: $error")
+                            appendLine("--- Registro ---")
+                            logLines.forEach { appendLine(it) }
+                        }
+                        clipboard.setText(AnnotatedString(payload))
+                        copied = true
+                    },
+                ) {
+                    Text(if (copied) "¡Copiado!" else "Copiar registro")
+                }
+            }
+        },
+        dismissButton = {
+            if (exporting) {
+                TextButton(onClick = onCancel) { Text("Cancelar") }
+            } else {
+                TextButton(onClick = onDismissError) { Text("Cerrar") }
             }
         },
     )
