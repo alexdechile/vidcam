@@ -5,9 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.media.ExifInterface
 import android.net.Uri
+import java.io.InputStream
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlaySettings
@@ -89,12 +92,66 @@ object LayerBitmaps {
     const val TEXT_RASTER_FACTOR = 2f
 
     fun decodePng(context: Context, uriString: String): Bitmap? = try {
-        val stream = if (uriString.startsWith(ASSET_SCHEME)) {
+        val decoded = openStream(context, uriString)?.use { stream ->
+            BitmapFactory.decodeStream(stream)
+        } ?: return null
+        applyOrientation(context, uriString, decoded)
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * Aplica la orientación EXIF de [uriString] sobre [bitmap] y devuelve un
+     * nuevo Bitmap con la orientación ya corregida. Los fondos (`BackgroundBitmaps`)
+     * ya hacían esto, pero las capas PNG/texto no, lo que hacía que una foto
+     * rotada 90°/270° saliera desplazada y con el ancla equivocada.
+     */
+    private fun applyOrientation(context: Context, uriString: String, bitmap: Bitmap): Bitmap {
+        val orientation = try {
+            openStream(context, uriString)?.use { stream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        if (orientation == ExifInterface.ORIENTATION_NORMAL ||
+            orientation == ExifInterface.ORIENTATION_UNDEFINED
+        ) {
+            return bitmap
+        }
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
+        }
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        } catch (e: Exception) {
+            bitmap
+        }
+    }
+
+    private fun openStream(context: Context, uriString: String): InputStream? = try {
+        if (uriString.startsWith(ASSET_SCHEME)) {
             context.assets.open(uriString.removePrefix(ASSET_SCHEME))
         } else {
             context.contentResolver.openInputStream(Uri.parse(uriString))
         }
-        stream?.use { BitmapFactory.decodeStream(it) }
     } catch (e: Exception) {
         null
     }
